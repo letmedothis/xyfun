@@ -35,7 +35,7 @@ allowBuilds:
   es5-ext: true
   esbuild: true
   msw: true
-  phantomjs-prebuilt: true
+  phantomjs-prebuilt: false
   protobufjs: true
   registry-js: true
   xterm-addon-search-bar@https://codeload.github.com/Hiram-Wong/xterm-addon-search-bar/tar.gz/1e7ac43d4fe6bab48abacb38685d66357bc6c6dd: true
