@@ -164,6 +164,12 @@ jobs:
     if: needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
+      - name: Check out release commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+          fetch-depth: 1
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -176,6 +182,28 @@ jobs:
           set -euo pipefail
           find dist -type f -print
 
+      - name: Generate release summary
+        shell: bash
+        env:
+          BUILD_TIMESTAMP: ${{ needs.metadata.outputs.timestamp }}
+          RELEASE_SHA: ${{ needs.metadata.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## 本次更新"
+            echo
+            git log -1 --pretty=format:'%B' | sed '/^Signed-off-by:/d'
+            echo
+            echo
+            echo "## 构建信息"
+            echo
+            echo "- 提交：\`$RELEASE_SHA\`"
+            echo "- 版本：\`v$BUILD_TIMESTAMP\`"
+            echo "- 构建时间：\`$BUILD_TIMESTAMP\`（Asia/Shanghai）"
+            echo "- 平台：Windows、macOS、Linux（x64/arm64）"
+          } > release-notes.md
+
       - name: Publish GitHub Release
         uses: ncipollo/release-action@v1
         with:
@@ -183,9 +211,8 @@ jobs:
           tag: v${{ needs.metadata.outputs.timestamp }}
           name: zyfun ${{ needs.metadata.outputs.timestamp }}
           commit: ${{ needs.metadata.outputs.sha }}
-          body: |
-            Automated release for commit `${{ needs.metadata.outputs.sha }}`.
-            Build timestamp: `${{ needs.metadata.outputs.timestamp }}` (Asia/Shanghai).
+          bodyFile: release-notes.md
+          generateReleaseNotes: true
           artifacts: dist/*
           draft: false
           prerelease: false
