@@ -94,8 +94,8 @@ const migrate = async (orm: IOrm, schemas: ISchemas): Promise<void> => {
       duration        REAL DEFAULT 0,
       skipTimeInEnd   REAL DEFAULT 0,
       skipTimeInStart REAL DEFAULT 0,
-      createdAt       INTEGER DEFAULT (strftime('%s','now')),
-      updatedAt       INTEGER DEFAULT (strftime('%s','now'))
+      createdAt       INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updatedAt       INTEGER DEFAULT (strftime('%s','now') * 1000)
     );
   `);
   await orm.run(sql`
@@ -137,8 +137,8 @@ const migrate = async (orm: IOrm, schemas: ISchemas): Promise<void> => {
       logo      TEXT,
       headers   TEXT DEFAULT '{}',           -- JSON
       isActive  INTEGER DEFAULT 1,           -- 1 = true, 0 = false
-      createdAt INTEGER DEFAULT (strftime('%s','now')),
-      updatedAt INTEGER DEFAULT (strftime('%s','now'))
+      createdAt INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updatedAt INTEGER DEFAULT (strftime('%s','now') * 1000)
     );
   `);
   await orm.run(sql`
@@ -217,8 +217,8 @@ const migrate = async (orm: IOrm, schemas: ISchemas): Promise<void> => {
       ext        TEXT,
       categories TEXT,
       isActive   INTEGER DEFAULT 1,          -- 1 = true, 0 = false
-      createdAt  INTEGER DEFAULT (strftime('%s','now')),
-      updatedAt  INTEGER DEFAULT (strftime('%s','now'))
+      createdAt  INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updatedAt  INTEGER DEFAULT (strftime('%s','now') * 1000)
     );
   `);
   await orm.run(sql`
@@ -244,8 +244,8 @@ const migrate = async (orm: IOrm, schemas: ISchemas): Promise<void> => {
       videoName     TEXT,
       videoType     TEXT,
       videoRemarks  TEXT,
-      createdAt     INTEGER DEFAULT (strftime('%s','now')),
-      updatedAt     INTEGER DEFAULT (strftime('%s','now'))
+      createdAt     INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updatedAt     INTEGER DEFAULT (strftime('%s','now') * 1000)
     );
   `);
   await orm.run(sql`

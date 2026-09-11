@@ -88,7 +88,7 @@ import PQueue from 'p-queue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import InfiniteLoading from 'v3-infinite-loading';
 import type { StateHandler as ILoadStateHdandler } from 'v3-infinite-loading/lib/types';
-import { computed, onActivated, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue';
 
 import { fetchChannelPage, fetchIptvActive, putIptvDefault } from '@/api/live';
 import { generateFfmpegScreenshot } from '@/api/system';
@@ -195,6 +195,10 @@ onActivated(() => {
 
   emitter.off(emitterChannel.SEARCH_LIVE_RECOMMEND, onSearchRecommend);
   emitter.on(emitterChannel.SEARCH_LIVE_RECOMMEND, onSearchRecommend);
+});
+
+onDeactivated(() => {
+  clearAllQueues();
 });
 
 onUnmounted(() => {

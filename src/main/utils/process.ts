@@ -90,7 +90,7 @@ export async function chmodBinary(binaryPath: string, permission: IFileMode): Pr
 
   try {
     if ((await filePermission(binaryPath)).code !== permission) {
-      await fileChmod(binaryPath, permission);
+      if (!(await fileChmod(binaryPath, permission))) return false;
       logger.info(`Set executable permissions for binary: ${binaryPath}`);
     }
     return true;
@@ -112,7 +112,7 @@ export function chmodBinarySync(binaryPath: string, permission: IFileMode): bool
 
   try {
     if (filePermissionSync(binaryPath).code !== permission) {
-      fileChmodSync(binaryPath, permission);
+      if (!fileChmodSync(binaryPath, permission)) return false;
       logger.info(`Set executable permissions for binary: ${binaryPath}`);
     }
     return true;

@@ -75,8 +75,8 @@ export function isPositiveFiniteNumber(value: unknown): boolean {
  * @returns Returns true if value is a valid permission number, otherwise false
  */
 export function isPermissionNumber(value: unknown): boolean {
-  if (!/^[0-7]+$/.test(String(value))) return false;
-  return (value as number) >= 0 && (value as number) <= 0o777;
+  if (typeof value !== 'number' || !Number.isInteger(value)) return false;
+  return value >= 0 && value <= 0o777;
 }
 
 /**

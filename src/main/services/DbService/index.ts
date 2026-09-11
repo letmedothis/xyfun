@@ -75,10 +75,12 @@ export class DbService {
       if (type === 'webdav') {
         const webdav = new WebdavStorage();
         await webdav.initClient({ url, username, password });
-        await webdav.putFileContents('config.json', JSON.stringify(content));
+        const result = await webdav.putFileContents('config.json', JSON.stringify(content));
+        if (result instanceof Error || result === false) return false;
       } else if (type === 'icloud') {
         const icloud = new ICloudStorage();
-        await icloud.putFileContents('config.json', JSON.stringify(content));
+        const result = await icloud.putFileContents('config.json', JSON.stringify(content));
+        if (result === false) return false;
       } else {
         return false;
       }
@@ -415,7 +417,8 @@ export class DbService {
       remove: (ids: string[]) => operater.channel.remove(this.orm!, schemas, ids),
       removeByField: (doc: Partial<{ [K in keyof IModels['channel']]: any }>) =>
         operater.channel.removeByField(this.orm!, schemas, doc),
-      set: (doc: Array<IModels['channel']>) => operater.channel.set(this.orm!, schemas, doc),
+      set: (doc: Array<IModels['channel']>) =>
+        this.orm!.transaction(async (tx) => operater.channel.set(tx as unknown as IOrm, schemas, doc)),
       clear: () => operater.channel.clear(this.orm!, schemas),
       page: (page: number = 1, pageSize: number = 20, kw: string = '', group: string = '') =>
         operater.channel.page(this.orm!, schemas, page, pageSize, kw, group),

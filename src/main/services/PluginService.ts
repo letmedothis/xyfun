@@ -1,5 +1,5 @@
 import os from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loggerService } from '@logger';
@@ -192,7 +192,12 @@ class PluginService {
 
     for (const plugin of projects) {
       try {
-        const pluginBasePath = join(this.baseDir, plugin);
+        const pluginBasePath = resolve(this.baseDir, plugin);
+        const relativePluginPath = relative(resolve(this.baseDir), pluginBasePath);
+        if (relativePluginPath.startsWith('..') || isAbsolute(relativePluginPath)) {
+          logger.warn(`Invalid plugin path: ${plugin}`);
+          continue;
+        }
         if (!(await pathExist(pluginBasePath)) || (await fileState(pluginBasePath)) !== 'dir') {
           logger.warn(`Not found plugin working directory`);
           continue;

@@ -193,7 +193,7 @@ export class FFmpegService {
             resolution: videoStream.width && videoStream.height ? `${videoStream.width}x${videoStream.height}` : '',
             fps: (() => {
               const rate = videoStream.r_frame_rate ?? '';
-              const [n, d] = rate.split('0/0').map(Number);
+              const [n, d] = rate.split('/').map(Number);
               const result = d && d !== 0 ? n / d : 0;
               return Math.round(result);
             })(),

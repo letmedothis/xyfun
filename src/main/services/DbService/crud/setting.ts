@@ -37,10 +37,7 @@ export default {
   async set(orm: IOrm, schemas: ISchemas, doc: Array<{ key: ISettingKey; value: any }>) {
     await orm.delete(schemas.setting);
 
-    const newDocs = Object.entries(doc).map(([key, value]) => ({
-      key,
-      value: { data: value },
-    }));
+    const newDocs = doc.map(({ key, value }) => ({ key, value: { data: value } }));
 
     return await orm.insert(schemas.setting).values(newDocs);
   },

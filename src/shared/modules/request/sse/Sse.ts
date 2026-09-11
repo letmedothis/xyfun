@@ -87,14 +87,22 @@ export class VSse {
     }
 
     if (requestOptions?.throttle && requestOptions.throttle.delay !== 0) {
-      return new Promise((resolve) => {
-        throttle(() => resolve(this.synthesisRequest(config, options)), requestOptions.throttle?.delay as number);
+      return new Promise((resolve, reject) => {
+        const run = throttle(
+          () => this.synthesisRequest(config, options).then(resolve, reject),
+          requestOptions.throttle?.delay as number,
+        );
+        run();
       });
     }
 
     if (requestOptions?.debounce && requestOptions.debounce.delay !== 0) {
-      return new Promise((resolve) => {
-        debounce(() => resolve(this.synthesisRequest(config, options)), requestOptions.debounce?.delay as number);
+      return new Promise((resolve, reject) => {
+        const run = debounce(
+          () => this.synthesisRequest(config, options).then(resolve, reject),
+          requestOptions.debounce?.delay as number,
+        );
+        run();
       });
     }
 

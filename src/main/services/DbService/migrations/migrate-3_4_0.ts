@@ -45,7 +45,7 @@ const migrate = async (orm: IOrm, _schemas: ISchemas): Promise<void> => {
     );
   `);
   await orm.run(sql`
-    INSERT INTO __new_tbl_iptv (id, name, url, type, epg, logo, headers, isActive)
+    INSERT INTO __new_tbl_iptv (id, key, name, url, type, epg, logo, headers, isActive)
     SELECT id, CAST(id AS TEXT), name, url, type, epg, logo, '{}', isActive FROM tbl_iptv;
   `);
   await orm.run(sql`DROP TABLE tbl_iptv;`);
@@ -69,7 +69,7 @@ const migrate = async (orm: IOrm, _schemas: ISchemas): Promise<void> => {
     );
   `);
   await orm.run(sql`
-    INSERT INTO __new_tbl_drive (id, name, server, startPage, headers, params, search, showAll, isActive)
+    INSERT INTO __new_tbl_drive (id, key, name, server, startPage, headers, params, search, showAll, isActive)
     SELECT id, CAST(id AS TEXT), name, server, startPage, headers, params, search, showAll, isActive FROM tbl_drive;
   `);
   await orm.run(sql`DROP TABLE tbl_drive;`);
@@ -91,7 +91,7 @@ const migrate = async (orm: IOrm, _schemas: ISchemas): Promise<void> => {
     );
   `);
   await orm.run(sql`
-    INSERT INTO __new_tbl_analyze (id, name, url, type, headers, isActive)
+    INSERT INTO __new_tbl_analyze (id, key, name, url, type, headers, isActive)
     SELECT id, CAST(id AS TEXT), name, url, type, '{}', isActive FROM tbl_analyze;
   `);
   await orm.run(sql`DROP TABLE tbl_analyze;`);

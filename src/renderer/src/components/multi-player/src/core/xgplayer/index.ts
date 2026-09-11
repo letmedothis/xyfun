@@ -125,7 +125,9 @@ class XgPlayerAdapter {
       duration: 5 * 1000,
     }));
     this.player.plugins.danmu.updateComments(comments, true);
-    this.player.getPlugin('danmu').updateComments(comments, true); // 效果一样
+
+    const previousSendHandle = this.listeners.get('DANMAKU_SEND');
+    if (previousSendHandle) this.off('DANMAKU_SEND');
 
     const sendHandle = (item: any) => {
       const options: IBarrageSendOptions = {
