@@ -82,6 +82,18 @@ export class FastifyService {
       await this.server!.listen({ port: this.PORT, host: '0.0.0.0' });
     } catch (error) {
       logger.error(`Fastify Service Start Failed: ${(error as Error).message}`);
+      const server = this.server;
+      this.server = null;
+
+      // A failed listen/registration can leave a partially initialized
+      // Fastify instance behind. Close it so a later start can retry.
+      if (server) {
+        try {
+          await server.close();
+        } catch (closeError) {
+          logger.error(`Fastify Service Cleanup Failed: ${(closeError as Error).message}`);
+        }
+      }
     }
 
     return this.status();
@@ -102,8 +114,6 @@ export class FastifyService {
   }
 
   public async restart(): Promise<boolean> {
-    if (this.server) return true;
-
     try {
       await this.stop();
       await this.start();

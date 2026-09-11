@@ -1,0 +1,194 @@
+name: Commit Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: commit-release-main
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      timestamp: ${{ steps.meta.outputs.timestamp }}
+      version: ${{ steps.meta.outputs.version }}
+      sha: ${{ steps.meta.outputs.sha }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TIMESTAMP="$(TZ=Asia/Shanghai date +'%Y%m%d%H%M%S')"
+          SHA="$(git rev-parse HEAD)"
+
+          # Keep the full timestamp in the release tag while using a valid
+          # semver prerelease for electron-builder's application version.
+          echo "timestamp=$TIMESTAMP" >> "$GITHUB_OUTPUT"
+          echo "version=0.0.0-$TIMESTAMP" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: metadata
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+            arch: arm64
+            build_command: pnpm build:mac:arm64
+          - os: macos-15-intel
+            platform: mac
+            arch: x64
+            build_command: pnpm build:mac:x64
+          - os: windows-latest
+            platform: win
+            arch: x64
+            build_command: pnpm build:win:x64
+          - os: windows-11-arm
+            platform: win
+            arch: arm64
+            build_command: pnpm build:win:arm64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            build_command: pnpm build:linux:x64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            build_command: pnpm build:linux:arm64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+          fetch-depth: 1
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Resolve pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm dependencies
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-pnpm-
+
+      - name: Set application version
+        shell: bash
+        run: npm version "${{ needs.metadata.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install macOS dependencies
+        if: matrix.platform == 'mac'
+        run: brew install python-setuptools
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm libevdev-dev libxtst-dev libx11-dev libxfixes-dev libwayland-dev
+
+      - name: Prepare environment
+        shell: bash
+        run: cp -f .env.example .env
+
+      - name: Build package
+        shell: bash
+        run: ${{ matrix.build_command }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_OPTIONS: --max-old-space-size=8192
+
+      - name: Rename build artifacts
+        shell: bash
+        env:
+          TIMESTAMP: ${{ needs.metadata.outputs.timestamp }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          mkdir -p renamed-artifacts
+
+          while IFS= read -r -d '' file; do
+            base="$(basename "$file")"
+            cp "$file" "renamed-artifacts/zyfun-${TIMESTAMP}-${PLATFORM}-${ARCH}-${base}"
+          done < <(find dist -maxdepth 1 -type f -print0)
+
+          test -n "$(find renamed-artifacts -type f -print -quit)"
+          find renamed-artifacts -type f -print
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: zyfun-${{ needs.metadata.outputs.timestamp }}-${{ matrix.platform }}-${{ matrix.arch }}
+          path: renamed-artifacts/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 8
+
+  publish:
+    needs:
+      - metadata
+      - build
+    if: needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Show release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          find dist -type f -print
+
+      - name: Publish GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ needs.metadata.outputs.timestamp }}
+          name: zyfun ${{ needs.metadata.outputs.timestamp }}
+          commit: ${{ needs.metadata.outputs.sha }}
+          body: |
+            Automated release for commit `${{ needs.metadata.outputs.sha }}`.
+            Build timestamp: `${{ needs.metadata.outputs.timestamp }}` (Asia/Shanghai).
+          artifacts: dist/*
+          draft: false
+          prerelease: false
+          makeLatest: false
+          allowUpdates: false
+          artifactErrorsFailBuild: true

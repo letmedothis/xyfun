@@ -239,7 +239,7 @@ export class CdpElectron {
             scriptTimer = setInterval(function() {
               if (location.href !== 'about:blank') {
                 scriptCounter += 1;
-                console.log(---exec run_script start ' + scriptCounter + '---');
+                console.log('---exec run_script start ' + scriptCounter + '---');
                 ${runScript}
                 clearInterval(scriptTimer);
                 scriptCounter = 0;

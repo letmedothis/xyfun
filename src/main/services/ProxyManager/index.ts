@@ -66,7 +66,7 @@ export class ProxyManager {
         this.monitorSystemProxy();
       }
 
-      this.setGlobalProxy(config);
+      await this.setGlobalProxy(config);
       this.config = config;
     } catch (error) {
       logger.error('Failed to config proxy:', error as Error);
@@ -76,12 +76,12 @@ export class ProxyManager {
     }
   }
 
-  private setGlobalProxy(config: ProxyConfig) {
+  private async setGlobalProxy(config: ProxyConfig): Promise<void> {
     this.nodeProxyController.configure({
       proxyRules: config.mode === 'direct' ? undefined : config.proxyRules,
       proxyBypassRules: config.proxyBypassRules,
     });
-    this.setSessionsProxy(config);
+    await this.setSessionsProxy(config);
   }
 
   private async setSessionsProxy(config: ProxyConfig): Promise<void> {

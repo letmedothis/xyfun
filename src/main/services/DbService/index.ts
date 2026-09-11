@@ -132,7 +132,7 @@ export class DbService {
       }
 
       try {
-        this.dbSyncStore();
+        await this.dbSyncStore();
       } catch (error) {
         logger.error('Failed to local sync:', error as Error);
       }
@@ -205,7 +205,7 @@ export class DbService {
         logger.info(`Migrate to ${version} success`);
       } catch (error) {
         if (dbVersion === '0.0.0') {
-          await fileDelete(this.dbURI);
+          await fileDelete(this.dbURI.replace(/^file:/, ''));
         }
         throw new Error(`Migrate to ${version} failed: ${error instanceof Error ? error.message : error}`);
       }
