@@ -143,7 +143,7 @@ export const parseHelpData = (data: Record<string, string>): Record<string, stri
   const result: Record<string, any> = {};
 
   for (const [key, value] of Object.entries(data)) {
-    result[key] = value.replaceAll('\n', '<br/>').replaceAll(' ', '&nbsp;');
+    result[key] = value;
   }
 
   return result;

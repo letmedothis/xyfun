@@ -67,6 +67,7 @@ export type { ITerminalOptions } from '@xterm/xterm';
 import { MessagePlugin } from 'tdesign-vue-next';
 
 import { t } from '@/locales';
+import { loggerService } from '@/utils/logger';
 
 export type IXTerm = XTerm;
 export type IXTermLog = LogLevel;
@@ -78,6 +79,7 @@ export type IXTermOptions = Omit<ITerminalOptions, 'theme'> & {
 };
 type ITerminalConsoleLog = Exclude<IXTermLog, 'verbose' | 'silly' | 'none'> | 'log';
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+const logger = loggerService.withContext('terminal');
 
 // terminal
 const terminalDivRef = useTemplateRef<HTMLElement>('terminalDivRef');
@@ -156,14 +158,35 @@ const emitConnectionStatus = () => {
   props.onConnectionStatusChanged?.(connecting.value ? 'connecting' : connected.value ? 'connected' : 'disconnected');
 };
 
+const clearHeartbeat = () => {
+  if (pingLooper.value) {
+    window.clearInterval(pingLooper.value);
+    pingLooper.value = null;
+  }
+};
+
 const connectWebSocket = () => {
+  let wsUrl: string;
+  try {
+    wsUrl = buildWebSocketUrl(props.ws);
+    if (!wsUrl) return;
+  } catch (error) {
+    connecting.value = false;
+    connected.value = false;
+    emitConnectionStatus();
+    MessagePlugin.error(t('component.terminal.terminal.error'));
+    logger.warn('Invalid terminal WebSocket URL', error as Error);
+    return;
+  }
+
   connecting.value = true;
   connected.value = false;
   emitConnectionStatus();
 
-  websocketInstance.value = new WebSocket(buildWebSocketUrl(props.ws));
+  websocketInstance.value = new WebSocket(wsUrl);
 
   websocketInstance.value.onopen = () => {
+    clearHeartbeat();
     pingLooper.value = window.setInterval(() => {
       if (websocketInstance.value && websocketInstance.value.readyState === WebSocket.OPEN) {
         websocketInstance.value.send(JSON.stringify({ type: 'ping' }));
@@ -172,10 +195,18 @@ const connectWebSocket = () => {
   };
 
   websocketInstance.value.onmessage = (event) => {
-    const data = JSON5.parse(event.data);
+    let data: any;
+    try {
+      data = JSON5.parse(event.data);
+    } catch (error) {
+      logger.warn('Invalid terminal WebSocket message', error as Error);
+      return;
+    }
+
+    if (!data || typeof data !== 'object' || typeof data.type !== 'string') return;
 
     if (data.type === 'data') {
-      xtermInstance.value?.write(data.data);
+      if (typeof data.data === 'string') xtermInstance.value?.write(data.data);
     } else if (data.type === 'connected') {
       MessagePlugin.success(t('component.terminal.terminal.success'));
 
@@ -186,15 +217,22 @@ const connectWebSocket = () => {
       xtermInstance.value?.focus();
       requestAnimationFrame(() => handleResize());
     } else if (data.type === 'resize') {
-      const { col, row } = JSON5.parse(data.data);
-      xtermInstance.value?.resize(col, row);
+      try {
+        const { col, row } = JSON5.parse(data.data);
+        if (Number.isInteger(col) && Number.isInteger(row) && col > 0 && row > 0) {
+          xtermInstance.value?.resize(col, row);
+        }
+      } catch (error) {
+        logger.warn('Invalid terminal resize message', error as Error);
+      }
     } else if (data.type === 'error') {
-      MessagePlugin.error(`t('common.error'): ${data.data}`);
+      MessagePlugin.error(`${t('common.error')}: ${String(data.data ?? '')}`);
     }
   };
 
   websocketInstance.value.onclose = (event) => {
     if (websocketInstance.value === event.target) {
+      clearHeartbeat();
       connecting.value = false;
       connected.value = false;
       emitConnectionStatus();
@@ -203,6 +241,7 @@ const connectWebSocket = () => {
 
   websocketInstance.value.onerror = (event) => {
     if (websocketInstance.value === event.target) {
+      clearHeartbeat();
       connecting.value = false;
       connected.value = false;
       emitConnectionStatus();
@@ -312,10 +351,7 @@ const resetTerminal = () => {
     websocketInstance.value = null;
   }
 
-  if (pingLooper.value) {
-    clearInterval(pingLooper.value);
-    pingLooper.value = null;
-  }
+  clearHeartbeat();
 
   connecting.value = false;
   connected.value = false;

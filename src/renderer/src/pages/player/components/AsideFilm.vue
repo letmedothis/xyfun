@@ -198,7 +198,7 @@
           <div class="new-intro-case">
             <div class="new-intro-title txthide txthide1">{{ $t('pages.player.film.info.background') }}</div>
             <div class="new-intro-content">
-              <span class="txt" v-html="infoConf.vod_content || $t('common.unknown')"></span>
+              <span class="txt">{{ infoConf.vod_content || $t('common.unknown') }}</span>
             </div>
           </div>
           <div class="new-intro-case">

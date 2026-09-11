@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { join } from 'node:path';
 
 import { createClient } from '@libsql/client';
@@ -5,12 +6,11 @@ import { loggerService } from '@logger';
 import type { IStoreKey } from '@main/services/ConfigManager';
 import { configManager, STORE_KEYS } from '@main/services/ConfigManager';
 import { ICloudStorage, WebdavStorage } from '@main/services/StorageService';
-import { fileDelete } from '@main/utils/file';
 import { APP_DATABASE_PATH } from '@main/utils/path';
 import { LOG_MODULE } from '@shared/config/logger';
 import type { ISetting, ISettingKey } from '@shared/config/tblSetting';
 import { isArrayEmpty, isObjectEmpty } from '@shared/modules/validate';
-import type { IClient, IConfig, IMigrations, IModels, IOrm, ITableName } from '@shared/types/db';
+import type { IClient, IConfig, IDbStore, IMigrations, IModels, IOrm, ITableName } from '@shared/types/db';
 import type { FSWatcher } from 'chokidar';
 import chokidar from 'chokidar';
 import { eq } from 'drizzle-orm';
@@ -30,6 +30,7 @@ export class DbService {
   private client: IClient | null = null;
   private orm: IOrm | null = null;
   private watcher: FSWatcher | null = null;
+  private watcherSyncing = false;
   private subscribers: Map<string, Array<(newValue: any) => void>> = new Map();
 
   private constructor() {
@@ -78,6 +79,8 @@ export class DbService {
       } else if (type === 'icloud') {
         const icloud = new ICloudStorage();
         await icloud.putFileContents('config.json', JSON.stringify(content));
+      } else {
+        return false;
       }
       return true;
     } catch {
@@ -91,26 +94,48 @@ export class DbService {
   ): Promise<boolean> {
     try {
       const { url, username, password } = options || {};
+      let rawContent: unknown;
 
       if (type === 'webdav') {
         const webdav = new WebdavStorage();
         await webdav.initClient({ url, username, password });
-        const text = await webdav.getFileContents('config.json');
-        const content = JSON5.parse(text as string);
-        await this.db.init(content);
+        rawContent = await webdav.getFileContents('config.json');
       } else if (type === 'icloud') {
         const icloud = new ICloudStorage();
-        const text = await icloud.getFileContents('config.json');
-        const content = JSON5.parse(text as string);
-        await this.db.init(content);
+        rawContent = await icloud.getFileContents('config.json');
+      } else {
+        return false;
       }
+
+      let text: string;
+      if (typeof rawContent === 'string') {
+        text = rawContent;
+      } else if (Buffer.isBuffer(rawContent)) {
+        text = rawContent.toString('utf8');
+      } else if (rawContent instanceof ArrayBuffer) {
+        text = Buffer.from(rawContent).toString('utf8');
+      } else if (ArrayBuffer.isView(rawContent)) {
+        text = Buffer.from(rawContent.buffer, rawContent.byteOffset, rawContent.byteLength).toString('utf8');
+      } else {
+        throw new TypeError('Invalid cloud backup content');
+      }
+
+      const content = JSON5.parse(text);
+      if (!content || typeof content !== 'object' || Array.isArray(content)) {
+        throw new TypeError('Invalid cloud backup data');
+      }
+      await this.replaceData(content);
+      await this.dbSyncStore();
       return true;
-    } catch {
+    } catch (error) {
+      logger.error('Failed to restore cloud backup:', error as Error);
       return false;
     }
   }
 
   private startWatcher(): void {
+    if (this.watcher) return;
+
     const path = this.dbURI.replace('file:', '');
 
     this.watcher = chokidar.watch(path, {
@@ -119,22 +144,30 @@ export class DbService {
       },
     });
 
+    this.watcher.on('error', (error) => logger.error('Database watcher error:', error as Error));
+
     this.watcher.on('change', async () => {
+      if (this.watcherSyncing) return;
+      this.watcherSyncing = true;
       try {
-        const cloudConf = await this.setting.getValue('cloud');
-        const { sync = false, type, ...options } = cloudConf || {};
+        try {
+          const cloudConf = await this.setting.getValue('cloud');
+          const { sync = false, type, ...options } = cloudConf || {};
 
-        if (sync) {
-          await this.cloudBackup(type, options);
+          if (sync) {
+            await this.cloudBackup(type, options);
+          }
+        } catch (error) {
+          logger.error('Failed to cloud sync:', error as Error);
         }
-      } catch (error) {
-        logger.error('Failed to cloud sync:', error as Error);
-      }
 
-      try {
-        await this.dbSyncStore();
-      } catch (error) {
-        logger.error('Failed to local sync:', error as Error);
+        try {
+          await this.dbSyncStore();
+        } catch (error) {
+          logger.error('Failed to local sync:', error as Error);
+        }
+      } finally {
+        this.watcherSyncing = false;
       }
     });
   }
@@ -158,6 +191,46 @@ export class DbService {
     if (this.watcher) {
       await this.stopWatcher();
     }
+  }
+
+  /** Replace imported tables atomically. */
+  public async replaceData(data: Partial<IDbStore>): Promise<void> {
+    if (!this.orm) throw new Error('Database is not initialized');
+
+    await this.orm.transaction(async (tx) => {
+      for (const [name, value] of Object.entries(data)) {
+        if (!(name in schemas)) continue;
+
+        const table = schemas[name as ITableName];
+        const transaction = tx as any;
+        await transaction.delete(table);
+
+        if (name === 'setting') {
+          if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            throw new TypeError('Invalid setting data');
+          }
+          const rows = Object.entries(value || {}).map(([key, item]) => ({ key, value: { data: item } }));
+          if (rows.length > 0) await transaction.insert(table).values(rows);
+        } else {
+          if (!Array.isArray(value)) throw new TypeError(`Invalid ${name} data`);
+          if (value.length > 0) await transaction.insert(table).values(value);
+        }
+      }
+    });
+  }
+
+  /** Append imported rows atomically. */
+  public async appendData(data: Partial<IDbStore>): Promise<void> {
+    if (!this.orm) throw new Error('Database is not initialized');
+
+    await this.orm.transaction(async (tx) => {
+      const transaction = tx as any;
+      for (const [name, value] of Object.entries(data)) {
+        if (!(name in schemas) || name === 'setting') continue;
+        if (!Array.isArray(value)) throw new TypeError(`Invalid ${name} data`);
+        if (value.length > 0) await transaction.insert(schemas[name as ITableName]).values(value);
+      }
+    });
   }
 
   /**
@@ -196,17 +269,16 @@ export class DbService {
 
     for (const { version, migrate } of migrationList) {
       try {
-        await migrate(this.orm, schemas);
-        await this.orm
-          .update(schemas.setting)
-          .set({ value: { data: dbVersion === '0.0.0' ? latestVersion : version } })
-          .where(eq(schemas.setting.key, 'version'));
+        await this.orm.transaction(async (tx) => {
+          await migrate(tx as unknown as IOrm, schemas);
+          await tx
+            .update(schemas.setting)
+            .set({ value: { data: dbVersion === '0.0.0' ? latestVersion : version } })
+            .where(eq(schemas.setting.key, 'version'));
+        });
 
         logger.info(`Migrate to ${version} success`);
       } catch (error) {
-        if (dbVersion === '0.0.0') {
-          await fileDelete(this.dbURI.replace(/^file:/, ''));
-        }
         throw new Error(`Migrate to ${version} failed: ${error instanceof Error ? error.message : error}`);
       }
     }

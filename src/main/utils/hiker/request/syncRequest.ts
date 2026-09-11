@@ -1,6 +1,5 @@
 import { Buffer } from 'node:buffer';
 import path from 'node:path';
-import process from 'node:process';
 
 import { convertHeaders } from '@shared/modules/headers';
 import { toString } from '@shared/modules/toString';
@@ -13,8 +12,6 @@ import type { Options } from 'sync-request';
 import syncRequest, { FormData } from 'sync-request';
 
 import { MOBILE_UA, PC_UA } from '../ua';
-
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const getTimeout = (timeout: number | undefined | null) => {
   const baseTimeout = 5000;
@@ -237,23 +234,20 @@ const convertBase64Image = (url: string, options: RequestOptions = {}) => {
 
 const batchFetch = (requests: any[], threads: number = 16) => {
   const results: any[] = [];
-  const processBatch = (batchSize: number, index: number = 0) => {
-    if (index < requests.length) {
-      const batch = requests.slice(index, index + batchSize);
-      for (const request of batch) {
-        try {
-          const response = fetch(request.url, request.options);
-          results.push(response);
-        } catch (error) {
-          results.push(`Request to ${request.url} failed: ${(error as Error).message}`);
-        }
-      }
-      processBatch(batchSize, index + batchSize);
-    }
-  };
+  const batchSize = Math.max(1, Math.min(requests.length || 1, Number.isFinite(threads) ? Math.floor(threads) : 16));
 
-  const batchSize = requests.length > threads ? threads : requests.length;
-  processBatch(batchSize);
+  for (let index = 0; index < requests.length; index += batchSize) {
+    const batch = requests.slice(index, index + batchSize);
+    for (const request of batch) {
+      try {
+        const response = fetch(request.url, request.options);
+        results.push(response);
+      } catch (error) {
+        results.push(`Request to ${request.url} failed: ${(error as Error).message}`);
+      }
+    }
+  }
+
   return results;
 };
 

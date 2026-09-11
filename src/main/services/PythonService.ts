@@ -1,18 +1,19 @@
 import type { ChildProcessByStdio } from 'node:child_process';
-import { execSync, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { join } from 'node:path';
 import type { Stream } from 'node:stream';
+import { promisify } from 'node:util';
 
 import { loggerService } from '@logger';
 import { appLocale } from '@main/services/AppLocale';
 import { pathExist } from '@main/utils/file';
 import { HOME_BIN_PATH } from '@main/utils/path';
 import { chmodBinary, getBinaryName, killPid, matchPort, matchPs } from '@main/utils/process';
-import { execAsync } from '@main/utils/shell';
 import { LOG_MODULE } from '@shared/config/logger';
 import { isArray, isArrayEmpty } from '@shared/modules/validate';
 
 const logger = loggerService.withContext(LOG_MODULE.PYTHON);
+const execFileAsync = promisify(execFile);
 
 export interface IPythonOptions {
   projectBasePath: string;
@@ -99,11 +100,11 @@ export class PythonService {
         return true;
       }
 
-      const cmd = cmdArgs.join(' ');
-      logger.debug(`Install pip dependencies with command: ${cmd}`);
+      const [command, ...args] = cmdArgs;
+      logger.debug(`Install pip dependencies with command: ${cmdArgs.join(' ')}`);
 
       try {
-        const { stdout, stderr } = await execAsync(cmd, {
+        const { stdout, stderr } = await execFileAsync(command, args, {
           cwd: this.projectBasePath,
         });
 
@@ -154,11 +155,11 @@ export class PythonService {
         return true;
       }
 
-      const cmd = cmdArgs.join(' ');
-      logger.debug(`Check pip dependencies with command: ${cmd}`);
+      const [command, ...args] = cmdArgs;
+      logger.debug(`Check pip dependencies with command: ${cmdArgs.join(' ')}`);
 
       try {
-        const { stdout, stderr } = await execAsync(cmd, {
+        const { stdout, stderr } = await execFileAsync(command, args, {
           cwd: this.projectBasePath,
         });
 
@@ -189,6 +190,12 @@ export class PythonService {
     } = {},
   ): void {
     try {
+      if (this.childProcess && !this.childProcess.killed) {
+        logger.warn('Stopping the previous Python process before starting a new one');
+        this.childProcess.kill();
+        this.childProcess = null;
+      }
+
       logger.debug(`Spawning Python process with args: ${args.join(' ')}`);
 
       const cmd = ['run', ...(venv ? ['--active'] : []), ...args];
@@ -214,7 +221,7 @@ export class PythonService {
       });
 
       child.on('close', (code) => {
-        this.childProcess = null;
+        if (this.childProcess === child) this.childProcess = null;
         cb?.closeCb?.(code);
       });
     } catch (error) {
@@ -225,8 +232,8 @@ export class PythonService {
 
   async runExec(args: string[], venv: boolean = false): Promise<{ stdout: string; stderr: string }> {
     try {
-      const cmd = [this.uvBinaryPath, 'run', ...(venv ? ['--active'] : []), ...args];
-      const { stdout, stderr } = await execAsync(cmd.join(' '), {
+      const cmd = ['run', ...(venv ? ['--active'] : []), ...args];
+      const { stdout, stderr } = await execFileAsync(this.uvBinaryPath, cmd, {
         cwd: this.projectBasePath,
         windowsHide: true,
         encoding: 'utf-8',
@@ -240,8 +247,8 @@ export class PythonService {
 
   runExecSync(args: string[], venv: boolean = false): { stdout: string; stderr: string } {
     try {
-      const cmd = [this.uvBinaryPath, 'run', ...(venv ? ['--active'] : []), ...args];
-      const output = execSync(cmd.join(' '), {
+      const cmd = ['run', ...(venv ? ['--active'] : []), ...args];
+      const output = execFileSync(this.uvBinaryPath, cmd, {
         cwd: this.projectBasePath,
         windowsHide: true,
         encoding: 'utf-8',

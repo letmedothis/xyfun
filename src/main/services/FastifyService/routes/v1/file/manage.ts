@@ -1,6 +1,6 @@
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 
-import { createDir, fileDelete, pathExist, readFile, saveFile } from '@main/utils/file';
+import { createDir, fileDelete, pathExist, readFile, resolveWithinPath, saveFile } from '@main/utils/file';
 import { APP_FILE_PATH } from '@main/utils/path';
 import type {
   AddFileBody,
@@ -24,7 +24,8 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
     async (req, reply) => {
       try {
         const { type = 'file', '*': path } = req.params;
-        const filePath = type === 'file' ? join(APP_FILE_PATH, path) : path;
+        const filePath = type === 'file' ? resolveWithinPath(APP_FILE_PATH, path) : null;
+        if (!filePath) return reply.code(403).send({ code: -1, msg: 'Invalid file path', data: null });
         const content = req.body;
         const basePath = dirname(filePath);
 
@@ -50,7 +51,8 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
     async (req, reply) => {
       try {
         const { type = 'file', '*': path } = req.params;
-        const filePath = type === 'file' ? join(APP_FILE_PATH, path) : path;
+        const filePath = type === 'file' ? resolveWithinPath(APP_FILE_PATH, path) : null;
+        if (!filePath) return reply.code(403).send({ code: -1, msg: 'Invalid file path', data: null });
         const status = await fileDelete(filePath);
         return reply.code(200).send({ code: 0, msg: 'ok', data: { success: status } });
       } catch (error) {
@@ -68,7 +70,8 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
     async (req, reply) => {
       try {
         const { type = 'file', '*': path } = req.params;
-        const filePath = type === 'file' ? join(APP_FILE_PATH, path) : path;
+        const filePath = type === 'file' ? resolveWithinPath(APP_FILE_PATH, path) : null;
+        if (!filePath) return reply.code(403).send({ code: -1, msg: 'Invalid file path', data: null });
         const content = req.body;
         const basePath = dirname(filePath);
 
@@ -94,7 +97,8 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
     async (req, reply) => {
       try {
         const { type = 'file', '*': path } = req.params;
-        const filePath = type === 'file' ? join(APP_FILE_PATH, path) : path;
+        const filePath = type === 'file' ? resolveWithinPath(APP_FILE_PATH, path) : null;
+        if (!filePath) return reply.code(403).send({ code: -1, msg: 'Invalid file path', data: null });
         const content = await readFile(filePath);
         return reply.code(200).send(content);
       } catch (error) {

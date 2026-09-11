@@ -1,4 +1,5 @@
 import type { Buffer } from 'node:buffer';
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 
 import { loggerService } from '@logger';
@@ -6,7 +7,6 @@ import { appLocale } from '@main/services/AppLocale';
 import { appService } from '@main/services/AppService';
 import AppUpdater from '@main/services/AppUpdater';
 import { binaryService } from '@main/services/BinaryService';
-import { configManager } from '@main/services/ConfigManager';
 import { fastifyService } from '@main/services/FastifyService';
 import { fileStorage } from '@main/services/FileStorage';
 import { menuService } from '@main/services/MenuService';
@@ -29,21 +29,43 @@ import { PROXY_TYPE } from '@shared/config/setting';
 import type { IShortcutConfig, IShortcutType } from '@shared/config/shortcut';
 import { WINDOW_NAME } from '@shared/config/window';
 import type { ILang } from '@shared/locales';
-import {
-  isFile,
-  isHttp,
-  isObject,
-  isObjectEmpty,
-  isPositiveFiniteNumber,
-  isSecurityScheme,
-} from '@shared/modules/validate';
+import { isFile, isHttp, isObject, isPositiveFiniteNumber, isSecurityScheme } from '@shared/modules/validate';
 import type { ProxyConfig } from 'electron';
 import { BrowserWindow, ipcMain, shell, webContents } from 'electron';
-import { getDomain } from 'tldts';
 
 const logger = loggerService.withContext(LOG_MODULE.APP_IPC);
 
 export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
+  const getSenderWindow = (event: Electron.IpcMainInvokeEvent): BrowserWindow | null => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    return window && !window.isDestroyed() ? window : null;
+  };
+
+  const isTrustedSender = (event: Electron.IpcMainInvokeEvent): boolean => {
+    const senderWindow = getSenderWindow(event);
+    if (!senderWindow) return false;
+
+    const senderUrl = event.senderFrame?.url;
+    if (!senderUrl) return false;
+    if (senderUrl.startsWith('file:')) return true;
+
+    if (process.env.ELECTRON_RENDERER_URL) {
+      try {
+        return new URL(senderUrl).origin === new URL(process.env.ELECTRON_RENDERER_URL).origin;
+      } catch {
+        return false;
+      }
+    }
+
+    return false;
+  };
+
+  const getOwnedWebview = (event: Electron.IpcMainInvokeEvent, webviewId: number): Electron.WebContents | null => {
+    if (!isTrustedSender(event) || !Number.isInteger(webviewId)) return null;
+    const webview = webContents.fromId(webviewId);
+    return webview?.hostWebContents?.id === event.sender.id ? webview : null;
+  };
+
   const appUpdater = new AppUpdater(mainWindow);
 
   // api
@@ -135,26 +157,6 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
     if (!url || !app) return false;
     if (!isHttp(url) && !(await pathExist(url))) return false;
 
-    const quote = (value: string) => {
-      if (!value) return `""`;
-
-      const trimmed = value.trim();
-      const first = trimmed[0];
-      const last = trimmed.at(-1);
-
-      if (first === `'` && last === `'`) {
-        return `"${trimmed.slice(1, -1)}"`;
-      }
-
-      if (first === `"` && last === `"`) {
-        return trimmed;
-      }
-
-      const cleaned = trimmed.replace(/^['"]|['"]$/g, '');
-
-      return `"${cleaned}"`;
-    };
-
     try {
       if (windowService.getWindow(WINDOW_NAME.PLAYER)) {
         windowService.closeWindow(WINDOW_NAME.PLAYER);
@@ -163,14 +165,21 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
       // Windows: "C:\Program Files\VLC\vlc.exe" "C:\Video\1.mp4"
       // Linux: "/usr/bin/vlc" "http://..."
       // Mac: open -a "/Applications/IINA.app" "http://..."
-      const command = isMacOS ? `open -a ${quote(app)} ${quote(url)}` : `${quote(app)} ${quote(url)}`;
-      logger.debug(`Calling player with command: ${command}`);
+      const executable = app.trim().replace(/^(['"])(.*)\1$/, '$2');
+      const args = isMacOS ? ['-a', executable, url] : [url];
+      const command = isMacOS ? 'open' : executable;
 
-      const { stdout, stderr } = await execAsync(command);
-      if (stdout) return true;
-      if (stderr) logger.error(`Failed to call player:`, new Error(stderr));
-
-      return false;
+      return await new Promise<boolean>((resolve) => {
+        const child = spawn(command, args, { stdio: 'ignore', windowsHide: true });
+        child.once('spawn', () => {
+          child.unref();
+          resolve(true);
+        });
+        child.once('error', (error) => {
+          logger.error('Failed to call player:', error);
+          resolve(false);
+        });
+      });
     } catch (error) {
       logger.error(`Failed to call player:`, error as Error);
       return false;
@@ -214,30 +223,36 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   );
 
   // fs
-  ipcMain.handle(IPC_CHANNEL.FS_EXIST, async (_, path: string) => {
+  ipcMain.handle(IPC_CHANNEL.FS_EXIST, async (event, path: string) => {
+    if (!isTrustedSender(event)) return false;
     return await pathExist(path);
   });
 
-  ipcMain.handle(IPC_CHANNEL.FS_DELETE, async (_, path: string) => {
+  ipcMain.handle(IPC_CHANNEL.FS_DELETE, async (event, path: string) => {
+    if (!isTrustedSender(event)) return false;
     return await fileDelete(path);
   });
 
-  ipcMain.handle(IPC_CHANNEL.FS_FILE_READ, async (_, path: string, encoding: BufferEncoding = 'utf-8') => {
+  ipcMain.handle(IPC_CHANNEL.FS_FILE_READ, async (event, path: string, encoding: BufferEncoding = 'utf-8') => {
+    if (!isTrustedSender(event)) return null;
     return await readFile(path, encoding);
   });
 
   ipcMain.handle(
     IPC_CHANNEL.FS_FILE_WRITE,
-    async (_, path: string, data: string | Buffer, encoding: BufferEncoding = 'utf-8') => {
+    async (event, path: string, data: string | Buffer, encoding: BufferEncoding = 'utf-8') => {
+      if (!isTrustedSender(event)) return false;
       return await saveFile(path, data, encoding);
     },
   );
 
-  ipcMain.handle(IPC_CHANNEL.FS_DIR_READ, async (_, path: string, depth: number = 0, exclude?, include?) => {
+  ipcMain.handle(IPC_CHANNEL.FS_DIR_READ, async (event, path: string, depth: number = 0, exclude?, include?) => {
+    if (!isTrustedSender(event)) return [];
     return await readDirFaster(path, depth, exclude, include);
   });
 
-  ipcMain.handle(IPC_CHANNEL.FS_DIR_CREATE, async (_, path: string) => {
+  ipcMain.handle(IPC_CHANNEL.FS_DIR_CREATE, async (event, path: string) => {
+    if (!isTrustedSender(event)) return false;
     return await createDir(path);
   });
 
@@ -245,9 +260,11 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   ipcMain.handle(
     IPC_CHANNEL.NOTIFICATION_SEND,
     async (event: Electron.IpcMainInvokeEvent, notification: INotification) => {
-      const win = BrowserWindow.fromWebContents(event.sender)!;
+      const win = getSenderWindow(event);
+      if (!win) return false;
       const notificationService = new NotificationService(win);
       await notificationService.sendNotification(notification);
+      return true;
     },
   );
 
@@ -340,8 +357,8 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   });
 
   // webview
-  ipcMain.handle(IPC_CHANNEL.WEBVIEW_SPELL_CHECK, (_, webviewId: number, mode: 1 | 2) => {
-    const webview = webContents.fromId(webviewId);
+  ipcMain.handle(IPC_CHANNEL.WEBVIEW_SPELL_CHECK, (event, webviewId: number, mode: 1 | 2) => {
+    const webview = getOwnedWebview(event, webviewId);
     if (!webview) return;
 
     if (isPositiveFiniteNumber(mode)) {
@@ -355,14 +372,14 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   ipcMain.handle(
     IPC_CHANNEL.WEBVIEW_LINK_BLOCK,
     (event: Electron.IpcMainInvokeEvent, webviewId: number, mode: 1 | 2) => {
-      const webview = webContents.fromId(webviewId);
+      const webview = getOwnedWebview(event, webviewId);
       if (!webview) return;
 
       if (isPositiveFiniteNumber(mode)) {
         if (mode === 1) {
           webview.setWindowOpenHandler(({ url }) => {
-            const mainWindow = BrowserWindow.fromWebContents(event.sender)!;
-            mainWindow.webContents.send(IPC_CHANNEL.WEBVIEW_LINK_BLOCK_RELAY, url);
+            const mainWindow = getSenderWindow(event);
+            if (mainWindow) mainWindow.webContents.send(IPC_CHANNEL.WEBVIEW_LINK_BLOCK_RELAY, url);
             return { action: 'deny' };
           });
         } else if (mode === 2) {
@@ -376,57 +393,41 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
 
   ipcMain.handle(
     IPC_CHANNEL.WEBVIEW_HEADER_BLOCK,
-    (_, webviewId: number, rawUrl: string, headers?: Record<string, any>) => {
-      const webview = webContents.fromId(webviewId);
+    (event, webviewId: number, rawUrl: string, headers?: Record<string, any>) => {
+      const webview = getOwnedWebview(event, webviewId);
       if (!webview) return;
 
-      const isSameDomain = (source: string, raw: string) => {
-        try {
-          return getDomain(source) === getDomain(raw);
-        } catch {
-          return false;
-        }
-      };
-
-      webview.session.webRequest.onBeforeSendHeaders(null); // Clear previous listeners to avoid stacking
+      windowService.setWebviewHeaderRule(
+        webviewId,
+        typeof rawUrl === 'string' ? rawUrl : '',
+        isObject(headers) ? headers : undefined,
+      );
 
       const defaultUA = generateUserAgent();
       webview.setUserAgent(defaultUA);
 
-      webview.session.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
-        const { requestHeaders, url } = details;
-        const ua = configManager.ua;
-        const language = appLocale.defaultLang();
-
-        requestHeaders['User-Agent'] = ua;
-        requestHeaders['Accept-Language'] = `${language}, en;q=0.9, *;q=0.5`;
-
-        if (!isSameDomain(url, rawUrl)) return callback({ requestHeaders });
-
-        if (!isObject(headers) || isObjectEmpty(headers)) return callback({ requestHeaders });
-
-        for (const key in headers) {
-          requestHeaders[key] = headers[key];
-        }
-
-        callback({ requestHeaders });
-      });
+      webview.once('destroyed', () => windowService.clearWebviewHeaderRule(webviewId));
     },
   );
 
   // window
   ipcMain.handle(IPC_CHANNEL.WINDOW_SIZE, (event: Electron.IpcMainInvokeEvent, width: number, height: number) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!;
+    const win = getSenderWindow(event);
+    if (!win) return [];
 
     if (isPositiveFiniteNumber(width) && isPositiveFiniteNumber(height)) {
-      win.setSize(width, height);
+      win.setSize(
+        Math.min(Math.max(Math.round(width), 100), 10000),
+        Math.min(Math.max(Math.round(height), 100), 10000),
+      );
     }
 
     return win.getSize();
   });
 
   ipcMain.handle(IPC_CHANNEL.WINDOW_PIN, (event: Electron.IpcMainInvokeEvent, mode: 0 | 1 | 2) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!;
+    const win = getSenderWindow(event);
+    if (!win) return false;
 
     if (isPositiveFiniteNumber(mode)) {
       if (mode === 0) win.setAlwaysOnTop(!win.isAlwaysOnTop());
@@ -438,7 +439,8 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   });
 
   ipcMain.handle(IPC_CHANNEL.WINDOW_CLOSE, (event: Electron.IpcMainInvokeEvent, mode: 1) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!;
+    const win = getSenderWindow(event);
+    if (!win) return false;
 
     if (isPositiveFiniteNumber(mode)) {
       if (mode === 1 && win.isClosable()) win.close();
@@ -448,7 +450,8 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   });
 
   ipcMain.handle(IPC_CHANNEL.WINDOW_MIN, (event: Electron.IpcMainInvokeEvent, mode: 0 | 1 | 2) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!;
+    const win = getSenderWindow(event);
+    if (!win) return false;
 
     if (isPositiveFiniteNumber(mode)) {
       if (mode === 0) {
@@ -464,7 +467,8 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   });
 
   ipcMain.handle(IPC_CHANNEL.WINDOW_MAX, (event: Electron.IpcMainInvokeEvent, mode: 0 | 1 | 2) => {
-    const win = BrowserWindow.fromWebContents(event.sender)!;
+    const win = getSenderWindow(event);
+    if (!win) return false;
 
     if (!win.isResizable()) return win.isMaximized();
 
@@ -483,13 +487,22 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
 
   ipcMain.handle(
     IPC_CHANNEL.WINDOW_POSITION,
-    (event: Electron.IpcMainInvokeEvent, mode: 'relative' | 'absolute', { dx, dy }) => {
-      const win = BrowserWindow.fromWebContents(event.sender)!;
+    (
+      event: Electron.IpcMainInvokeEvent,
+      mode: 'relative' | 'absolute',
+      position: { dx?: number; dy?: number } = {},
+    ) => {
+      const { dx, dy } = position;
+      const win = getSenderWindow(event);
+      if (!win || typeof dx !== 'number' || typeof dy !== 'number' || !Number.isFinite(dx) || !Number.isFinite(dy))
+        return [];
 
       const [x, y] = win.getPosition();
+      const safeDx = Math.min(Math.max(Math.round(dx), -100000), 100000);
+      const safeDy = Math.min(Math.max(Math.round(dy), -100000), 100000);
 
-      if (mode === 'absolute') win.setPosition(dx, dy);
-      else if (mode === 'relative') win.setPosition(x + dx, y + dy);
+      if (mode === 'absolute') win.setPosition(safeDx, safeDy);
+      else if (mode === 'relative') win.setPosition(x + safeDx, y + safeDy);
 
       return win.getPosition();
     },
@@ -556,7 +569,9 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
         mainWindow = windowService.createBrowserWindow();
         mainWindow.webContents.once('did-stop-loading', () => {
           setTimeout(() => {
-            mainWindow!.webContents.send(IPC_CHANNEL.BROWSER_NAVIGATE, url, headers);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send(IPC_CHANNEL.BROWSER_NAVIGATE, url, headers);
+            }
           }, 1000);
         });
       }

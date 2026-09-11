@@ -76,6 +76,7 @@ class WorkLruCache<K = string, V = ICmsAdapter> extends LruCache<K, V> {
 
 const CACHE_LIMIT = 10;
 const lruCache = new WorkLruCache<string, ICmsAdapter>(CACHE_LIMIT);
+const adapterInflight = new Map<string, Promise<ICmsAdapter>>();
 
 export const adapter = async (uuid: string, force: boolean = false): Promise<ICmsAdapter> => {
   if (!uuid) {
@@ -112,21 +113,32 @@ export const adapter = async (uuid: string, force: boolean = false): Promise<ICm
 
   if (lruCache.has(idHash)) {
     return lruCache.get(idHash)!;
-  } else {
+  }
+
+  const pending = adapterInflight.get(idHash);
+  if (pending) return pending;
+
+  const initPromise = (async () => {
     const SingleAdapter = singleton(CMS_ADAPTER_MAP[type]);
     if (SingleAdapter?.prepare) await SingleAdapter.prepare();
 
-    const adapter: ICmsAdapter = new SingleAdapter(source);
+    const cmsAdapter: ICmsAdapter = new SingleAdapter(source);
     try {
-      await adapter.init();
-      lruCache.put(idHash, adapter);
-      return adapter;
+      await cmsAdapter.init();
+      lruCache.put(idHash, cmsAdapter);
+      return cmsAdapter;
     } catch (error) {
       logger.error(error as Error);
-
       lruCache.delete(idHash);
       throw new Error(`Cms adapter init failed, cause: ${(error as Error).message}`);
     }
+  })();
+
+  adapterInflight.set(idHash, initPromise);
+  try {
+    return await initPromise;
+  } finally {
+    adapterInflight.delete(idHash);
   }
 };
 

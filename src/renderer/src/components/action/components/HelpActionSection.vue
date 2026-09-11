@@ -2,7 +2,7 @@
   <div class="help-action-section">
     <template v-for="(value, key) in helpData" :key="key">
       <h3 class="title">{{ key }}</h3>
-      <p class="content" v-html="value"></p>
+      <p class="content">{{ value }}</p>
     </template>
   </div>
 </template>
@@ -42,6 +42,7 @@ defineExpose({
   .content {
     color: var(--td-text-color-primary);
     font: var(--td-font-body-medium);
+    white-space: pre-wrap;
     margin-bottom: var(--td-comp-margin-s);
   }
 }

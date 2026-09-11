@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { basename, dirname, extname, join } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 
 import type { ISizeOption } from '@shared/modules/size';
 import { calculateSize } from '@shared/modules/size';
@@ -32,6 +32,37 @@ export interface IFileMetadata {
   ext: string;
   mime: string;
 }
+
+/**
+ * Resolve a path while keeping it inside a base directory.
+ * @returns The resolved path, or null when the child escapes the base.
+ */
+export const resolveWithinPath = (basePath: string, childPath: string): string | null => {
+  if (isStrEmpty(basePath) || !isString(childPath)) return null;
+
+  const base = resolve(basePath);
+  const target = resolve(base, childPath);
+  const relativePath = relative(base, target);
+
+  if (relativePath !== '' && (relativePath.startsWith('..') || isAbsolute(relativePath))) return null;
+
+  // Also resolve the nearest existing path component so symlinked directories
+  // cannot escape the application file directory.
+  if (!fs.existsSync(base)) return target;
+
+  let existingPath = target;
+  while (!fs.existsSync(existingPath) && existingPath !== base) existingPath = dirname(existingPath);
+  try {
+    const realBase = fs.realpathSync(base);
+    const realExistingPath = fs.realpathSync(existingPath);
+    const realRelativePath = relative(realBase, realExistingPath);
+    if (realRelativePath.startsWith('..') || isAbsolute(realRelativePath)) return null;
+  } catch {
+    return null;
+  }
+
+  return target;
+};
 
 const bufferEncoding: Array<BufferEncoding> = [
   'ascii',
@@ -1505,6 +1536,7 @@ export const clearDirSync = (dirPath: string): boolean => {
 };
 
 export default {
+  resolveWithinPath,
   pathExist,
   pathExistSync,
   pathLink,

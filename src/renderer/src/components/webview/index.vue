@@ -1,15 +1,6 @@
 <template>
   <div class="webview-container">
-    <webview
-      :key="appid"
-      ref="webviewRef"
-      src="about:blank"
-      allowpopups
-      autosize
-      disablewebsecurity
-      partition="persist:webview"
-      class="webview"
-    />
+    <webview :key="appid" ref="webviewRef" src="about:blank" autosize partition="persist:webview" class="webview" />
     <t-loading attach=".webview-container" size="medium" :loading="isWebviewLoading" :z-index="3500" />
     <auth attach=".webview-container" :z-index="3600" @submit="handleAuthSubmit" />
   </div>

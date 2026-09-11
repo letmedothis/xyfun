@@ -12,27 +12,30 @@ export class ProxyManager {
   private config: ProxyConfig = { mode: 'direct' };
   private systemProxyInterval: NodeJS.Timeout | null = null;
   private isSettingProxy = false;
+  private pendingConfig: ProxyConfig | null = null;
   private nodeProxyController = new NodeProxyController(logger);
 
   private async monitorSystemProxy(): Promise<void> {
     this.clearSystemProxyMonitor();
-    this.systemProxyInterval = setInterval(async () => {
-      const currentProxy = await getSystemProxy();
-      if (
-        currentProxy?.proxyUrl.toLowerCase() === this.config?.proxyRules &&
-        currentProxy?.noProxy.join(',').toLowerCase() === this.config?.proxyBypassRules?.toLowerCase()
-      ) {
-        return;
-      }
+    this.systemProxyInterval = setInterval(() => {
+      void (async () => {
+        const currentProxy = await getSystemProxy();
+        if (
+          currentProxy?.proxyUrl.toLowerCase() === this.config?.proxyRules &&
+          currentProxy?.noProxy.join(',').toLowerCase() === this.config?.proxyBypassRules?.toLowerCase()
+        ) {
+          return;
+        }
 
-      logger.info(
-        `system proxy changed: ${currentProxy?.proxyUrl}, this.config.proxyRules: ${this.config.proxyRules}, this.config.proxyBypassRules: ${this.config.proxyBypassRules}`,
-      );
-      await this.configureProxy({
-        mode: 'system',
-        proxyRules: currentProxy?.proxyUrl.toLowerCase(),
-        proxyBypassRules: currentProxy?.noProxy.join(','),
-      });
+        logger.info(
+          `system proxy changed: ${currentProxy?.proxyUrl}, this.config.proxyRules: ${this.config.proxyRules}, this.config.proxyBypassRules: ${this.config.proxyBypassRules}`,
+        );
+        await this.configureProxy({
+          mode: 'system',
+          proxyRules: currentProxy?.proxyUrl.toLowerCase(),
+          proxyBypassRules: currentProxy?.noProxy.join(','),
+        });
+      })().catch((error) => logger.error('Failed to monitor system proxy:', error as Error));
     }, 1000 * 60);
   }
 
@@ -44,9 +47,11 @@ export class ProxyManager {
   }
 
   async configureProxy(config: ProxyConfig): Promise<void> {
+    config = { ...config };
     logger.info(`configureProxy: ${config?.mode} ${config?.proxyRules} ${config?.proxyBypassRules}`);
 
     if (this.isSettingProxy) {
+      this.pendingConfig = config;
       return;
     }
 
@@ -73,6 +78,13 @@ export class ProxyManager {
       throw error;
     } finally {
       this.isSettingProxy = false;
+      const pendingConfig = this.pendingConfig;
+      this.pendingConfig = null;
+      if (pendingConfig) {
+        void this.configureProxy(pendingConfig).catch((error) =>
+          logger.error('Failed to apply queued proxy:', error as Error),
+        );
+      }
     }
   }
 

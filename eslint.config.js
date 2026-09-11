@@ -105,7 +105,8 @@ export default antfu(
 
       rules: {
         'vue/component-name-in-template-casing': ['error', 'kebab-case'],
-        'vue/custom-event-name-casing': ['error', 'kebab-case'],
+        // Vue's v-model contract requires the update:modelValue event name.
+        'vue/custom-event-name-casing': ['error', 'kebab-case', { ignores: ['/^update:/u'] }],
         'vue/block-order': [
           'error',
           {
@@ -152,6 +153,8 @@ export default antfu(
       '.gitignore',
       '!**/.prettierrc.js',
       'resources/t3Catopen/*.js',
+      // The playground is a standalone project with its own ESLint dependencies.
+      'packages/crypto/example/**',
     ]),
   ],
 );

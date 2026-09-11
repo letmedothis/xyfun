@@ -1,5 +1,3 @@
-import { appLocale } from '@main/services/AppLocale';
-import { configManager } from '@main/services/ConfigManager';
 import { generateUserAgent } from '@main/utils/systemInfo';
 import { IPC_CHANNEL } from '@shared/config/ipcChannel';
 import { app, session, webContents } from 'electron';
@@ -14,17 +12,7 @@ export function initSessionUserAgent() {
   const defaultUA = generateUserAgent();
 
   wvSession.setUserAgent(defaultUA);
-  wvSession.webRequest.onBeforeSendHeaders((details, cb) => {
-    const ua = configManager.ua;
-    const language = appLocale.defaultLang();
-
-    const headers = {
-      ...details.requestHeaders,
-      'User-Agent': ua,
-      'Accept-Language': `${language}, en;q=0.9, *;q=0.5`,
-    };
-    cb({ requestHeaders: headers });
-  });
+  return wvSession;
 }
 
 const attachKeyboardHandler = (contents: Electron.WebContents) => {

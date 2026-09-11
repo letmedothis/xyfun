@@ -20,12 +20,13 @@ import type { IReqEncode } from '@shared/config/req';
 import { reqEncodes } from '@shared/config/req';
 import { toUnix, toYMD } from '@shared/modules/date';
 import { convertHeaders, isLocalhostURI } from '@shared/modules/headers';
-import { isHttp, isNil, isUndefined } from '@shared/modules/validate';
+import { isNil, isUndefined } from '@shared/modules/validate';
 import type { AxiosRequestConfig } from 'axios';
 import type { FastifyPluginAsync } from 'fastify';
 import iconv from 'iconv-lite';
 import JSON5 from 'json5';
 
+import { isSafeRemoteUrl } from '../../v0/proxy/utils/safeRemoteUrl';
 import { checkM3u8, fixAdM3u8Ai } from './utils/m3u8';
 
 const API_PREFIX = 'system';
@@ -76,13 +77,24 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
       try {
         const { encode, ...config } = req.body as unknown as { encode?: IReqEncode } & AxiosRequestConfig;
 
+        if (!config.url || !(await isSafeRemoteUrl(config.url))) {
+          return reply.code(400).send({ code: -1, msg: 'Invalid remote URL', data: null });
+        }
+
         if (!isNil(encode) && reqEncodes.includes(encode)) {
-          const resp = await request.request({ ...config, responseType: 'arraybuffer' });
+          const resp = await request.request({
+            ...config,
+            responseType: 'arraybuffer',
+            fetchOptions: { ...config.fetchOptions, redirect: 'error' },
+          });
           resp.data = iconv.decode(Buffer.from(resp.data), encode);
           const res = { code: resp.status, data: resp.data, headers: resp.headers };
           return reply.code(200).send({ code: 0, msg: 'ok', data: res });
         } else {
-          const resp = await request.request(config);
+          const resp = await request.request({
+            ...config,
+            fetchOptions: { ...config.fetchOptions, redirect: 'error' },
+          });
           const res = { code: resp.status, data: resp.data, headers: resp.headers };
           return reply.code(200).send({ code: 0, msg: 'ok', data: res });
         }
@@ -102,7 +114,7 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
       try {
         const { url } = req.query;
 
-        if (!isHttp(url)) {
+        if (!(await isSafeRemoteUrl(url))) {
           return reply.code(400).send({ code: -1, msg: 'Invalid m3u8 URL', data: null });
         }
 
@@ -140,7 +152,7 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
       try {
         const { url } = req.query;
 
-        if (!isHttp(url)) {
+        if (!(await isSafeRemoteUrl(url))) {
           return reply.code(400).send({ code: -1, msg: 'Invalid m3u8 URL', data: null });
         }
 
@@ -191,8 +203,9 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
       const filePath = join(APP_LOG_PATH, `app.${toYMD()}.log`);
       const minLevel = LEVEL_MAP[level];
 
+      const origin = req.headers.origin;
       reply.raw.writeHead(200, {
-        'Access-Control-Allow-Origin': '*',
+        ...(origin ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
@@ -200,31 +213,50 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
 
       reply.raw.write(': heartbeat\n\n');
       const heartbeat = setInterval(() => {
-        reply.raw.write(': heartbeat\n\n');
+        if (!reply.raw.writableEnded) reply.raw.write(': heartbeat\n\n');
       }, 15000);
 
       let tail: TailFile | null = null;
+      let linesplitter: readline.Interface | null = null;
+      let closed = false;
 
       const quit = async () => {
+        if (closed) return;
+        closed = true;
         clearInterval(heartbeat);
+        linesplitter?.close();
+        linesplitter = null;
         if (tail) {
-          await tail.quit();
+          try {
+            await tail.quit();
+          } catch (error) {
+            fastify.log.error(`Failed to stop log tail: ${(error as Error).message}`);
+          }
           tail = null;
         }
-        reply.raw.write('data: [DONE]\n\n');
-        reply.raw.end();
+        if (!reply.raw.writableEnded) {
+          reply.raw.write('data: [DONE]\n\n');
+          reply.raw.end();
+        }
       };
 
       tail = new TailFile(filePath).on('tail_error', (error) => {
         fastify.log.error(`TailFile error: ${error.message}`);
-        quit();
+        void quit();
       });
-      await tail.start();
+      try {
+        await tail.start();
+      } catch (error) {
+        fastify.log.error(`Failed to start log tail: ${(error as Error).message}`);
+        await quit();
+        return;
+      }
 
       reply.raw.write('data: [READY]\n\n');
 
-      const linesplitter = readline.createInterface({ input: tail });
+      linesplitter = readline.createInterface({ input: tail });
       linesplitter.on('line', (line) => {
+        if (closed || reply.raw.writableEnded) return;
         try {
           const obj = JSON5.parse(line);
           if (LEVEL_MAP[obj.level] < minLevel) return;
@@ -236,7 +268,9 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
         }
       });
 
-      req.raw.on('close', quit);
+      req.raw.on('close', () => {
+        void quit();
+      });
     },
   );
 };

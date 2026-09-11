@@ -27,6 +27,8 @@ import {
 import type { IDbStore } from '@shared/types/db';
 import { aes, base64, randomUUID } from '@zy/crypto';
 
+import { isSafeRemoteUrl } from '../../../v0/proxy/utils/safeRemoteUrl';
+
 const logger = loggerService.withContext(LOG_MODULE.DATA_HELPER);
 
 const catvodToStandard = (config: Catvod, baseUrl: string): Partial<IDbStore> => {
@@ -575,7 +577,13 @@ const getContent = async (path: string): Promise<string> => {
 
   try {
     if (isHttp(path)) {
-      const { data: resp } = await request.request({ url: path, method: 'GET', responseType: 'text' });
+      if (!(await isSafeRemoteUrl(path))) return '';
+      const { data: resp } = await request.request({
+        url: path,
+        method: 'GET',
+        responseType: 'text',
+        fetchOptions: { redirect: 'error' },
+      });
       content = resp;
     } else if (await pathExist(path)) {
       content = (await readFile(path)) || '';

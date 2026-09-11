@@ -62,7 +62,7 @@ export default defineConfig({
         },
         output: {
           manualChunks: undefined, // Disable code splitting completely-return null to force single file packaging
-          inlineDynamicImports: true, // Inline all dynamic imports, this is a key configuration
+          inlineDynamicImports: false,
           format: 'cjs',
         },
         treeshake: false,

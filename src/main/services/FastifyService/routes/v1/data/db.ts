@@ -85,8 +85,6 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
     async (req, reply) => {
       try {
         const { api, putType } = req.body as { api: string; putType: IDataPutType };
-        const method = putType === DATA_PUT_TYPE.ADDITIONAL ? 'add' : 'set';
-
         const data = await convertCompleteToStandard(api);
         if (putType === DATA_PUT_TYPE.ADDITIONAL) delete data.setting;
         if (isObjectEmpty(data) || Object.keys(data).every((k) => isArrayEmpty(data[k]))) {
@@ -95,17 +93,13 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
             .send({ code: 0, msg: 'ok', data: { success: false, message: 'No valid data to import' } });
         }
 
-        const ops = (Object.keys(data) as ITableName[]).map((t) => dbService[t][method](data[t] as any));
-        const res = await Promise.allSettled(ops);
-
-        const ststus = res.filter((r) => r.status === 'rejected').length === 0;
-        if (!ststus) {
-          return reply
-            .code(200)
-            .send({ code: 0, msg: 'ok', data: { success: false, message: 'Dirty data to import' } });
+        if (putType === DATA_PUT_TYPE.OVERWRITE) {
+          await dbService.replaceData(data);
         }
 
-        return reply.code(200).send({ code: 0, msg: 'ok', data: { success: ststus } });
+        if (putType === DATA_PUT_TYPE.ADDITIONAL) await dbService.appendData(data);
+
+        return reply.code(200).send({ code: 0, msg: 'ok', data: { success: true } });
       } catch (error) {
         fastify.log.error(error);
         return reply.code(500).send({ code: -1, msg: (error as Error).message, data: null });
@@ -125,8 +119,6 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
           putType: IDataPutType;
           remoteType: IDataSimpleType;
         };
-        const method = putType === DATA_PUT_TYPE.ADDITIONAL ? 'add' : 'set';
-
         const data = await convertSimpleToStandard(api, remoteType);
         if (putType === DATA_PUT_TYPE.ADDITIONAL) delete data.setting;
         if (isObjectEmpty(data) || Object.keys(data).every((k) => isArrayEmpty(data[k]))) {
@@ -135,17 +127,13 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
             .send({ code: 0, msg: 'ok', data: { success: false, message: 'No valid data to import' } });
         }
 
-        const ops = (Object.keys(data) as ITableName[]).map((t) => dbService[t][method](data[t] as any));
-        const res = await Promise.allSettled(ops);
-
-        const ststus = res.filter((r) => r.status === 'rejected').length === 0;
-        if (!ststus) {
-          return reply
-            .code(200)
-            .send({ code: 0, msg: 'ok', data: { success: false, message: 'Dirty data to import' } });
+        if (putType === DATA_PUT_TYPE.OVERWRITE) {
+          await dbService.replaceData(data);
         }
 
-        return reply.code(200).send({ code: 0, msg: 'ok', data: { success: ststus } });
+        if (putType === DATA_PUT_TYPE.ADDITIONAL) await dbService.appendData(data);
+
+        return reply.code(200).send({ code: 0, msg: 'ok', data: { success: true } });
       } catch (error) {
         fastify.log.error(error);
         return reply.code(500).send({ code: -1, msg: (error as Error).message, data: null });

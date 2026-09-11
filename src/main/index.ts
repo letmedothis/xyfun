@@ -46,7 +46,6 @@ crashReporter.start({
  * Environment Variable Repair
  */
 const setupEnv = () => {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // ignore TLS certificate errors
   process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'; // disable security warnings
 
   process.on('warning', (warning) => {
@@ -124,56 +123,49 @@ const setupApp = async () => {
     'CanvasOopRasterization', // Canvas OOP rasterization
   ];
   app.commandLine.appendSwitch('enable-features', enableFeatures.join(','));
-  app.commandLine.appendSwitch('ignore-certificate-errors'); // ignore certificate errors
-  app.commandLine.appendSwitch('disable-web-security'); // disable web security
   app.commandLine.appendSwitch('disable-http-cache'); // disable HTTP cache
-
-  /**
-   * Disable Chromium features
-   */
-  const disableFeatures = [
-    'OutOfBlinkCors', // Disable CORS for cross-origin requests
-    'SameSiteByDefaultCookies', // Enable SameSite cookies by default
-    'CookiesWithoutSameSiteMustBeSecure', // Allow cookies without SameSite to be secure
-    'BlockInsecurePrivateNetworkRequests', // Block insecure requests initiated by private networks
-  ];
-  app.commandLine.appendSwitch('disable-features', disableFeatures.join(','));
 };
 
 /**
  * Application Ready Processing
  */
 const setupReady = () => {
-  app.whenReady().then(async () => {
-    // Set app user model id for windows
-    electronApp.setAppUserModelId(import.meta.env.VITE_MAIN_BUNDLE_ID);
+  app
+    .whenReady()
+    .then(async () => {
+      // Set app user model id for windows
+      electronApp.setAppUserModelId(import.meta.env.VITE_MAIN_BUNDLE_ID);
 
-    // Set doh
-    const hostResolver = configManager.dns;
-    if (isHttp(hostResolver, true)) {
-      logger.info(`Using secure dns: ${hostResolver}`);
-      app.configureHostResolver({
-        secureDnsMode: 'secure',
-        secureDnsServers: [hostResolver],
-      });
-    }
+      // Set doh
+      const hostResolver = configManager.dns;
+      if (isHttp(hostResolver, true)) {
+        logger.info(`Using secure dns: ${hostResolver}`);
+        app.configureHostResolver({
+          secureDnsMode: 'secure',
+          secureDnsServers: [hostResolver],
+        });
+      }
 
-    const mainWindow = windowService.createMainWindow();
+      const mainWindow = windowService.createMainWindow();
 
-    trayService.updateTray(true);
-    menuService.updateMenu(true);
+      trayService.updateTray(true);
+      menuService.updateMenu(true);
 
-    registerIpc(mainWindow, app);
+      registerIpc(mainWindow, app);
 
-    // Setup deep link for AppImage on Linux
-    await setupAppImageDeepLink();
+      // Setup deep link for AppImage on Linux
+      await setupAppImageDeepLink();
 
-    if (isDev) {
-      installExtension([VUEJS_DEVTOOLS])
-        .then(([...args]) => logger.info(`Added devtool extensions: ${args.map((arg) => arg.name).join(', ')}`))
-        .catch((error) => logger.error('An error occurred: ', error));
-    }
-  });
+      if (isDev) {
+        installExtension([VUEJS_DEVTOOLS])
+          .then(([...args]) => logger.info(`Added devtool extensions: ${args.map((arg) => arg.name).join(', ')}`))
+          .catch((error) => logger.error('An error occurred: ', error));
+      }
+    })
+    .catch((error) => {
+      logger.error('Application ready initialization failed:', error as Error);
+      app.quit();
+    });
 
   app.on(
     'login',
@@ -189,7 +181,8 @@ const setupReady = () => {
 
       const url = request.url;
       const key = `${authInfo.scheme}:${authInfo.host}:${authInfo.port}:${authInfo.realm}`;
-      const progressKey = `login-progress:${key}`;
+      // Keep pending credentials separate for concurrent windows requesting the same realm.
+      const progressKey = `login-progress:${key}:${webContents.id}`;
       const authKey = `login-auth:${key}`;
       const attemptKey = `login-attempt:${key}`;
 
@@ -211,43 +204,59 @@ const setupReady = () => {
 
       CacheService.set(progressKey, { callback, webContentsId: webContents.id, url }); // Store current auth context
 
-      const mainWindow = BrowserWindow.fromWebContents(webContents)!;
+      const mainWindow = BrowserWindow.fromWebContents(webContents);
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        CacheService.remove(progressKey);
+        callback('', '');
+        return;
+      }
       mainWindow.webContents.send(IPC_CHANNEL.LOGIN_BASIC, { authInfo, webContentsId: webContents.id, url });
       // webContents.send(IPC_CHANNEL.LOGIN_BASIC, { authInfo, webContentsId: webContents.id, url });
 
-      ipcMain.once(IPC_CHANNEL.LOGIN_BASIC_RELAY, (_, payload: IAuthRelayPayload) => {
+      const relayHandler = (_: Electron.IpcMainEvent, payload: IAuthRelayPayload) => {
+        if (!payload?.authInfo || !payload?.authCert || !Number.isInteger(payload.webContentsId)) return;
         const { authInfo, authCert, webContentsId } = payload;
         const { username, password } = authCert;
+        if (typeof username !== 'string' || typeof password !== 'string') return;
 
-        const key = `${authInfo.scheme}:${authInfo.host}:${authInfo.port}:${authInfo.realm}`;
-        const progressKey = `login-progress:${key}`;
-        const progress = CacheService.get<IAuthCacheProgress>(progressKey);
+        const payloadKey = `${authInfo.scheme}:${authInfo.host}:${authInfo.port}:${authInfo.realm}`;
+        if (payloadKey !== key || webContentsId !== webContents.id) return;
 
-        if (!progress || progress.webContentsId !== webContentsId) return;
+        const relayProgressKey = `login-progress:${payloadKey}:${webContentsId}`;
+        const progress = CacheService.get<IAuthCacheProgress>(relayProgressKey);
 
+        if (!progress || progress.webContentsId !== webContents.id) return;
+
+        ipcMain.removeListener(IPC_CHANNEL.LOGIN_BASIC_RELAY, relayHandler);
         progress.callback(username, password); // Callback auth
-        CacheService.set(`login-auth:${key}`, { username, password }); // Set auth cache
+        CacheService.set(`login-auth:${payloadKey}`, { username, password }); // Set auth cache
 
-        CacheService.remove(progressKey); // Clean progress cache
-      });
+        CacheService.remove(relayProgressKey); // Clean progress cache
+      };
+      ipcMain.on(IPC_CHANNEL.LOGIN_BASIC_RELAY, relayHandler);
+
+      // Never leave Chromium authentication requests pending indefinitely.
+      setTimeout(() => {
+        const pending = CacheService.get<IAuthCacheProgress>(progressKey);
+        if (!pending) return;
+        ipcMain.removeListener(IPC_CHANNEL.LOGIN_BASIC_RELAY, relayHandler);
+        CacheService.remove(progressKey);
+        pending.callback('', '');
+      }, 60_000).unref();
     },
   );
 
   app.on('web-contents-created', (_, webContents) => {
-    webContents.session.webRequest.onHeadersReceived((details, callback) => {
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          'Document-Policy': ['include-js-call-stacks-in-crash-reports'],
-        },
-      });
-    });
-
     webContents.on('unresponsive', async () => {
       // Interrupt execution and collect call stack from unresponsive renderer
       logger.error('Renderer unresponsive start');
-      const callStack = await webContents.mainFrame.collectJavaScriptCallStack();
-      logger.error(`Renderer unresponsive js call stack\n ${callStack}`);
+      try {
+        const callStack = await webContents.mainFrame.collectJavaScriptCallStack();
+        logger.error(`Renderer unresponsive js call stack\n ${callStack}`);
+      } catch (error) {
+        // The renderer may be destroyed while the stack is being collected.
+        logger.warn('Failed to collect renderer call stack', error as Error);
+      }
     });
   });
 
@@ -291,19 +300,43 @@ const setupReady = () => {
     optimizer.watchWindowShortcuts(window);
   });
 
-  app.on('before-quit', async () => {
+  app.on('before-quit', () => {
     app.isQuitting = true;
   });
 
-  app.on('will-quit', async (e: Electron.Event) => {
+  let shutdownStarted = false;
+  app.on('will-quit', (e: Electron.Event) => {
+    if (shutdownStarted) return;
+    shutdownStarted = true;
     e.preventDefault();
 
-    await filmCmsTerminate();
-    await fastifyService.stop();
-    await pluginService.clean();
-    logger.finish();
+    const runCleanup = async (name: string, cleanup: () => Promise<unknown>, timeoutMs = 10_000) => {
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([
+          cleanup(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`${name} cleanup timed out`)), timeoutMs);
+            timer.unref();
+          }),
+        ]);
+      } catch (error) {
+        logger.error(`${name} cleanup failed`, error as Error);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
 
-    app.exit(0);
+    void (async () => {
+      try {
+        await runCleanup('Film CMS', filmCmsTerminate);
+        await runCleanup('Fastify', () => fastifyService.stop());
+        await runCleanup('Plugin', () => pluginService.clean());
+      } finally {
+        logger.finish();
+        app.exit(0);
+      }
+    })();
   });
 
   // In this file you can include the rest of your app"s specific main process
@@ -312,7 +345,7 @@ const setupReady = () => {
 
 const main = async () => {
   setupEnv();
-  setupApp();
+  await setupApp();
 
   if (!app.requestSingleInstanceLock()) {
     app.quit();
@@ -321,7 +354,8 @@ const main = async () => {
     await fileStorage.initRequireDir();
     await dbService.init();
     await proxyManager.configureProxy(configManager.proxy);
-    await fastifyService.start();
+    const fastifyStarted = await fastifyService.start();
+    if (!fastifyStarted) logger.error('Fastify service failed to start; API features are unavailable');
 
     appLocale.init();
     setupReady();
@@ -333,4 +367,8 @@ const main = async () => {
   }
 };
 
-main();
+main().catch((error) => {
+  logger.error('Application startup failed:', error as Error);
+  if (app.isReady()) app.quit();
+  else process.exitCode = 1;
+});

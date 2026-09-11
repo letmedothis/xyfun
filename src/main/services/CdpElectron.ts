@@ -73,13 +73,31 @@ export class CdpElectron {
     if (this.timerId) clearTimeout(this.timerId);
     this.timerId = null;
 
-    if (this.page) await this.page.close();
+    if (this.page) {
+      try {
+        await this.page.close();
+      } catch (error) {
+        logger.warn(`Failed to close sniffer page: ${(error as Error).message}`);
+      }
+    }
     this.page = null;
 
-    if (this.browser?.connected) await this.browser.disconnect();
+    if (this.browser?.connected) {
+      try {
+        await this.browser.disconnect();
+      } catch (error) {
+        logger.warn(`Failed to disconnect sniffer browser: ${(error as Error).message}`);
+      }
+    }
     this.browser = null;
 
-    if (this.win && !this.win.isDestroyed()) this.win.close();
+    if (this.win && !this.win.isDestroyed()) {
+      try {
+        this.win.close();
+      } catch (error) {
+        logger.warn(`Failed to close sniffer window: ${(error as Error).message}`);
+      }
+    }
     this.win = null;
   }
 
@@ -187,6 +205,14 @@ export class CdpElectron {
       } = options;
 
       const timeout = getTimeout(rawTimeout, this.options.timeout);
+      let customMatchRegex: RegExp | undefined;
+      let customExcludeRegex: RegExp | undefined;
+      try {
+        customMatchRegex = customRegex ? new RegExp(customRegex, 'i') : undefined;
+        customExcludeRegex = snifferExclude ? new RegExp(snifferExclude, 'i') : undefined;
+      } catch (error) {
+        throw new Error(`Invalid sniffer regular expression: ${(error as Error).message}`);
+      }
       const headers = Object.fromEntries(
         Object.entries(convertHeaders(rawHeaders))
           .map(([key, value]) => {
@@ -255,66 +281,82 @@ export class CdpElectron {
       const timeoutPromise = new Promise<ISnifferResult>((_resolve, reject) => {
         if (!isPositiveFiniteNumber(timeout) || timeout <= 0) return;
 
-        this.timerId = setTimeout(async () => {
-          await this.cleanup();
-          reject(new Error('timeout'));
+        this.timerId = setTimeout(() => {
+          void this.cleanup().finally(() => {
+            reject(new Error('timeout'));
+          });
         }, timeout);
       });
 
       // Handle sniffer
       const snifferPromise = new Promise<ISnifferResult>((resolve) => {
         page.on('request', async (req) => {
-          if (req.isInterceptResolutionHandled()) return;
+          try {
+            if (req.isInterceptResolutionHandled()) return;
 
-          const reqUrl = req.url();
-          const reqHeaders = convertHeaders(req.headers());
-          const reqMethod = req.method();
-          const reqResourceType = req.resourceType();
+            const reqUrl = req.url();
+            const reqHeaders = convertHeaders(req.headers());
+            const reqMethod = req.method();
+            const reqResourceType = req.resourceType();
 
-          if (snifferExclude && new RegExp(snifferExclude, 'gi').test(reqUrl)) {
-            logger.warn(`Sniffer media custom exclude, url: ${reqUrl}`);
-            return req.continue();
-          }
-
-          if (customRegex) {
-            if (new RegExp(customRegex, 'gi').test(reqUrl)) {
-              logger.info(`Sniffer media custom match, url: ${reqUrl}`);
-              resolve({ url: reqUrl, headers: reqHeaders });
-              return req.abort();
+            if (customExcludeRegex?.test(reqUrl)) {
+              logger.warn(`Sniffer media custom exclude, url: ${reqUrl}`);
+              await req.continue();
+              return;
             }
-          } else {
-            const videoMatchRegex: RegExp =
-              /http(?:(?!http).){12,}?\.(?:m3u8|mpd|mp4|flv|avi|mkv|rm|wmv|mpg|m4a|mp3|tos)\?.*|http(?:(?!http).){12,}\.(?:m3u8|mpd|mp4|flv|avi|mkv|rm|wmv|mpg|m4a|mp3)|http(?:(?!http).)*?video\/tos*|http(?:(?!http).)*?obj\/tos*/;
-            const videoExcludeRegex: RegExp = /\.(?:css|html)$|url=http|v=http/i;
 
-            if (videoMatchRegex.test(reqUrl) && !videoExcludeRegex.test(reqUrl)) {
-              logger.info(`Sniffer media default match, url: ${reqUrl}`);
-              resolve({ url: reqUrl, headers: reqHeaders });
-              return req.abort();
+            if (customMatchRegex) {
+              if (customMatchRegex.test(reqUrl)) {
+                logger.info(`Sniffer media custom match, url: ${reqUrl}`);
+                resolve({ url: reqUrl, headers: reqHeaders });
+                await req.abort();
+                return;
+              }
+            } else {
+              const videoMatchRegex: RegExp =
+                /http(?:(?!http).){12,}?\.(?:m3u8|mpd|mp4|flv|avi|mkv|rm|wmv|mpg|m4a|mp3|tos)\?.*|http(?:(?!http).){12,}\.(?:m3u8|mpd|mp4|flv|avi|mkv|rm|wmv|mpg|m4a|mp3)|http(?:(?!http).)*?video\/tos*|http(?:(?!http).)*?obj\/tos*/;
+              const videoExcludeRegex: RegExp = /\.(?:css|html)$|url=http|v=http/i;
+
+              if (videoMatchRegex.test(reqUrl) && !videoExcludeRegex.test(reqUrl)) {
+                logger.info(`Sniffer media default match, url: ${reqUrl}`);
+                resolve({ url: reqUrl, headers: reqHeaders });
+                await req.abort();
+                return;
+              }
+            }
+
+            if (
+              ['head'].includes(reqMethod) ||
+              ['stylesheet', 'image', 'font', 'manifest', 'prefetch'].includes(reqResourceType) ||
+              (['xhr', 'fetch'].includes(reqResourceType) && reqUrl.includes('.css')) ||
+              [
+                'google-analytics.com',
+                'googletagmanager.com',
+                'doubleclick.net',
+                'facebook.net',
+                'twitter.com',
+                'linkedin.com',
+                'adservice.google.com',
+              ].some((domain) => reqUrl.includes(domain)) ||
+              ['/ads/', '/analytics/', '/pixel/', '/tracking/', '/stats/', 'devtools-detector', 'disable-devtool'].some(
+                (path) => reqUrl.includes(path),
+              )
+            ) {
+              await req.abort();
+              return;
+            }
+
+            await req.continue();
+          } catch (error) {
+            logger.warn('Failed to handle intercepted sniffer request', error as Error);
+            if (!req.isInterceptResolutionHandled()) {
+              try {
+                await req.continue();
+              } catch (continueError) {
+                logger.warn('Failed to continue intercepted sniffer request', continueError as Error);
+              }
             }
           }
-
-          if (
-            ['head'].includes(reqMethod) ||
-            ['stylesheet', 'image', 'font', 'manifest', 'prefetch'].includes(reqResourceType) ||
-            (['xhr', 'fetch'].includes(reqResourceType) && reqUrl.includes('.css')) ||
-            [
-              'google-analytics.com',
-              'googletagmanager.com',
-              'doubleclick.net',
-              'facebook.net',
-              'twitter.com',
-              'linkedin.com',
-              'adservice.google.com',
-            ].some((domain) => reqUrl.includes(domain)) ||
-            ['/ads/', '/analytics/', '/pixel/', '/tracking/', '/stats/', 'devtools-detector', 'disable-devtool'].some(
-              (path) => reqUrl.includes(path),
-            )
-          ) {
-            return await req.abort();
-          }
-
-          await req.continue();
         });
       });
 

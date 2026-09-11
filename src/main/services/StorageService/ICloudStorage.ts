@@ -2,7 +2,15 @@ import type { Buffer } from 'node:buffer';
 import { dirname, join } from 'node:path';
 
 import { loggerService } from '@logger';
-import { createDir, fileDelete, pathExist, readDirFaster, readFile, saveFile } from '@main/utils/file';
+import {
+  createDir,
+  fileDelete,
+  pathExist,
+  readDirFaster,
+  readFile,
+  resolveWithinPath,
+  saveFile,
+} from '@main/utils/file';
 import { APP_HOME_PATH } from '@main/utils/path';
 import { isMacOS } from '@main/utils/systemInfo';
 import { APP_NAME_ALIAS } from '@shared/config/appInfo';
@@ -15,6 +23,12 @@ export class ICloudStorage {
   private readonly baseDirPath: string = `${this.icloudRootPath}/${APP_NAME_ALIAS}`;
 
   constructor() {}
+
+  private getLocalFilePath(filename: string): string {
+    const filePath = resolveWithinPath(this.baseDirPath, filename);
+    if (!filePath) throw new Error('Invalid iCloud file path');
+    return filePath;
+  }
 
   public ensureIcloudReady = async (): Promise<void> => {
     if (!isMacOS) {
@@ -33,7 +47,7 @@ export class ICloudStorage {
   public putFileContents = async (filename: string, data: string | Buffer) => {
     await this.ensureIcloudReady();
 
-    const remoteFilePath = join(this.baseDirPath, filename);
+    const remoteFilePath = this.getLocalFilePath(filename);
     const remoteFileDirPath = dirname(remoteFilePath);
 
     try {
@@ -51,7 +65,7 @@ export class ICloudStorage {
   public getFileContents = async (filename: string, options?) => {
     await this.ensureIcloudReady();
 
-    const remoteFilePath = join(this.baseDirPath, filename);
+    const remoteFilePath = this.getLocalFilePath(filename);
 
     try {
       const fileExists = await pathExist(remoteFilePath);
@@ -81,7 +95,7 @@ export class ICloudStorage {
   public createDirectory = async (path: string) => {
     await this.ensureIcloudReady();
 
-    const remoteFilePath = join(this.baseDirPath, path);
+    const remoteFilePath = this.getLocalFilePath(path);
 
     try {
       return await createDir(remoteFilePath);
@@ -94,7 +108,7 @@ export class ICloudStorage {
   public deleteFile = async (filename: string) => {
     await this.ensureIcloudReady();
 
-    const remoteFilePath = join(this.baseDirPath, filename);
+    const remoteFilePath = this.getLocalFilePath(filename);
 
     try {
       return await fileDelete(remoteFilePath);

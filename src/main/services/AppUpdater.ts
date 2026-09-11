@@ -24,8 +24,13 @@ export default class AppUpdater {
   private releaseInfo: UpdateInfo | undefined;
   private cancellationToken: CancellationToken = new CancellationToken();
   private updateCheckResult: UpdateCheckResult | null = null;
+  private downloadInProgress: Promise<boolean> | null = null;
 
   constructor(mainWindow: BrowserWindow) {
+    const notify = (channel: IPC_CHANNEL, ...args: any[]) => {
+      if (!mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...args);
+    };
+
     if (!isPackaged) {
       Object.defineProperty(app, 'isPackaged', {
         get() {
@@ -50,28 +55,28 @@ export default class AppUpdater {
 
     autoUpdater.on('error', (error) => {
       logger.error('update error', error as Error);
-      mainWindow.webContents.send(IPC_CHANNEL.UPDATE_ERROR, error);
+      notify(IPC_CHANNEL.UPDATE_ERROR, error);
     });
 
     autoUpdater.on('update-available', (releaseInfo: UpdateInfo) => {
       logger.info('update available', releaseInfo);
-      mainWindow.webContents.send(IPC_CHANNEL.UPDATE_AVAILABLE, releaseInfo);
+      notify(IPC_CHANNEL.UPDATE_AVAILABLE, releaseInfo);
     });
 
     // when it is detected that there is no need to update
     autoUpdater.on('update-not-available', () => {
-      mainWindow.webContents.send(IPC_CHANNEL.UPDATE_NOT_AVAILABLE);
+      notify(IPC_CHANNEL.UPDATE_NOT_AVAILABLE);
     });
 
     // update download progress
     autoUpdater.on('download-progress', (progress) => {
       const percent = Math.min(100, Math.max(0, progress.percent));
-      mainWindow.webContents.send(IPC_CHANNEL.UPDATE_DOWNLOAD_PROGRESS, percent);
+      notify(IPC_CHANNEL.UPDATE_DOWNLOAD_PROGRESS, percent);
     });
 
     // when the update is downloaded
     autoUpdater.on('update-downloaded', (releaseInfo: UpdateInfo) => {
-      mainWindow.webContents.send(IPC_CHANNEL.UPDATE_DOWNLOADED, releaseInfo);
+      notify(IPC_CHANNEL.UPDATE_DOWNLOADED, releaseInfo);
       this.releaseInfo = releaseInfo;
       logger.info('update downloaded', releaseInfo);
     });
@@ -151,12 +156,25 @@ export default class AppUpdater {
     setImmediate(() => autoUpdater.quitAndInstall(true, true));
   }
 
-  public startDownload() {
+  public async startDownload(): Promise<boolean> {
     if (this.updateCheckResult?.isUpdateAvailable && !this.autoUpdater.autoDownload) {
+      if (this.downloadInProgress) return this.downloadInProgress;
+
       // if autoDownload is false, then you need to call the following function again to trigger the download
-      // do not use await, because it will block the return of this function
       logger.info('downloadUpdate manual by check for updates', this.cancellationToken);
-      this.autoUpdater.downloadUpdate(this.cancellationToken);
+      this.downloadInProgress = this.autoUpdater
+        .downloadUpdate(this.cancellationToken)
+        .then(() => true)
+        .catch((error) => {
+          logger.error('Failed to download update:', error as Error);
+          return false;
+        })
+        .finally(() => {
+          this.downloadInProgress = null;
+        });
+      return this.downloadInProgress;
     }
+
+    return false;
   }
 }

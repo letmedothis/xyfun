@@ -19,6 +19,7 @@ import fastify from 'fastify';
 import JSON5 from 'json5';
 import qs from 'qs';
 
+import { API_AUTH_HEADER, API_AUTH_TOKEN } from './apiAuth';
 import routeModules from './routes';
 import { ResponseErrorSchema, ResponseRedirectSchema, ResponseSuccessSchema } from './schemas/base';
 
@@ -79,7 +80,7 @@ export class FastifyService {
 
       await this.server!.ready(); // Finalize server setup
       if (isDev || configManager.debug) this.server!.swagger(); // swagger documentation
-      await this.server!.listen({ port: this.PORT, host: '0.0.0.0' });
+      await this.server!.listen({ port: this.PORT, host: '127.0.0.1' });
     } catch (error) {
       logger.error(`Fastify Service Start Failed: ${(error as Error).message}`);
       const server = this.server;
@@ -128,7 +129,7 @@ export class FastifyService {
     return !!this.server;
   }
 
-  private async registerHandlers(): Promise<void> {
+  private registerHandlers(): void {
     this.server!.setErrorHandler((error: FastifyError, req: FastifyRequest, reply: FastifyReply) => {
       req.log.error(`Fastify Service Uncaught Exception: ${error.message}`);
 
@@ -136,13 +137,29 @@ export class FastifyService {
 
       return reply.code(statusCode).send({
         code: -1,
-        msg: statusCode >= 500 && isDev ? 'Internal Server Error' : error.message,
+        msg: statusCode >= 500 && !isDev ? 'Internal Server Error' : error.message,
         data: error.validation,
       });
     });
   }
 
-  private async registerHooks(): Promise<void> {
+  private registerHooks(): void {
+    this.server!.addHook('onRequest', async (req, reply) => {
+      if (req.method !== 'OPTIONS' && req.headers[API_AUTH_HEADER] !== API_AUTH_TOKEN) {
+        return reply.code(401).send({ code: -1, msg: 'Unauthorized', data: null });
+      }
+
+      const origin = req.headers.origin;
+      // Packaged renderer pages use file:// and therefore send Origin: null.
+      // Authentication has already succeeded above, and the token is injected
+      // only for trusted renderer webContents in WindowService.
+      if (!origin || origin === 'null') return;
+
+      if (!this.getAllowedOrigins().has(origin)) {
+        return reply.code(403).send({ code: -1, msg: 'Origin is not allowed', data: null });
+      }
+    });
+
     this.server!.addHook('onTimeout', async (req: FastifyRequest, reply: FastifyReply) => {
       req.log.warn(`Fastify Response Timeout: ${req.url}`);
 
@@ -158,7 +175,8 @@ export class FastifyService {
     // Register CORS
     await this.server!.register(fastifyCors, {
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      origin: '*',
+      origin: (origin, callback) =>
+        callback(null, !origin || origin === 'null' || this.getAllowedOrigins().has(origin)),
     });
 
     // Register multipart
@@ -206,7 +224,19 @@ export class FastifyService {
     }
   }
 
-  private async registerSchemas(): Promise<void> {
+  private getAllowedOrigins(): Set<string> {
+    const allowedOrigins = new Set([`http://127.0.0.1:${this.PORT}`, `http://localhost:${this.PORT}`]);
+    if (process.env.ELECTRON_RENDERER_URL) {
+      try {
+        allowedOrigins.add(new URL(process.env.ELECTRON_RENDERER_URL).origin);
+      } catch {
+        // Ignore an invalid development URL and keep the local defaults.
+      }
+    }
+    return allowedOrigins;
+  }
+
+  private registerSchemas(): void {
     this.server!.addSchema({ ...ResponseSuccessSchema, $id: Schema.ApiReponseSuccess });
     this.server!.addSchema({ ...ResponseErrorSchema, $id: Schema.ApiReponseError });
     this.server!.addSchema({ ...ResponseRedirectSchema, $id: Schema.ApiReponseRedirect });

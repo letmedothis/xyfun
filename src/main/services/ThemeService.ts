@@ -44,6 +44,7 @@ export class ThemeService {
         }
       }
 
+      if (!mainWindow || mainWindow.isDestroyed()) return;
       mainWindow.webContents.send(
         IPC_CHANNEL.THEME_UPDATED,
         nativeTheme.shouldUseDarkColors ? THEME.DARK : THEME.LIGHT,

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { loggerService } from '@logger';
 import { appLocale } from '@main/services/AppLocale';
 import { configManager } from '@main/services/ConfigManager';
+import { API_AUTH_HEADER, API_AUTH_TOKEN } from '@main/services/FastifyService/apiAuth';
 import { handleProtocolUrl } from '@main/services/ProtocolClient';
 import { APP_DATABASE_PATH } from '@main/utils/path';
 import {
@@ -16,6 +17,7 @@ import {
   isWindows22H2,
 } from '@main/utils/systemInfo';
 import { APP_NAME_PROTOCOL, titleBarOverlayDark, titleBarOverlayLight } from '@shared/config/appInfo';
+import { PORT } from '@shared/config/env';
 import { IPC_CHANNEL } from '@shared/config/ipcChannel';
 import { LOG_MODULE } from '@shared/config/logger';
 import type { ISize } from '@shared/config/window';
@@ -36,10 +38,11 @@ import {
   isSystemScheme,
   isUndefined,
 } from '@shared/modules/validate';
-import type { BrowserWindowConstructorOptions } from 'electron';
+import type { BrowserWindowConstructorOptions, Session } from 'electron';
 import { app, BrowserWindow, ipcMain, nativeImage, nativeTheme, screen, shell } from 'electron';
 import windowStateKeeper from 'electron-window-state';
 import { merge } from 'es-toolkit';
+import { getDomain } from 'tldts';
 
 import iconPath from '../../../build/icon.png?asset';
 import { contextMenu } from './ContextMenu';
@@ -53,6 +56,10 @@ export class WindowService {
   private static instance: WindowService | null = null;
   private winPool = new Map<string, { window: BrowserWindow | null; lastCrashTime: number }>();
   private supportShowWindow = new Set<string>([WINDOW_NAME.MAIN, WINDOW_NAME.PLAYER, WINDOW_NAME.BROWSER]);
+  private webRequestSessions = new WeakSet<Session>();
+  private webviewHeaderRules = new Map<number, { rawUrl: string; headers?: Record<string, any> }>();
+  private contextMenuSetup = false;
+  private trustedWebContentsIds = new Set<number>();
 
   public static getInstance(): WindowService {
     if (!WindowService.instance) {
@@ -82,7 +89,9 @@ export class WindowService {
   }
 
   public getAllWindows(): BrowserWindow[] {
-    return Array.from(this.winPool.values(), (item) => item.window!).filter((win) => win instanceof BrowserWindow);
+    return Array.from(this.winPool.values(), (item) => item.window!).filter(
+      (win) => win instanceof BrowserWindow && !win.isDestroyed(),
+    );
   }
 
   public getWindowName(mainWindow: BrowserWindow): string | null {
@@ -359,15 +368,27 @@ export class WindowService {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
     };
 
-    const onAck = () => {
+    const onAck = (event: Electron.IpcMainEvent) => {
+      if (mainWindow.isDestroyed()) {
+        clearTimeout(timer);
+        return finish();
+      }
+      if (event.sender.id !== mainWindow.webContents.id) return;
       if (timer) clearTimeout(timer);
       finish();
     };
 
-    const timer = setTimeout(onAck, 800);
+    const timer = setTimeout(() => {
+      ipcMain.removeListener(IPC_CHANNEL.WINDOW_DESTROY_RELAY, onAck);
+      finish();
+    }, 800);
 
-    ipcMain.once(IPC_CHANNEL.WINDOW_DESTROY_RELAY, onAck);
-    mainWindow.webContents.send(IPC_CHANNEL.WINDOW_DESTROY);
+    ipcMain.on(IPC_CHANNEL.WINDOW_DESTROY_RELAY, onAck);
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNEL.WINDOW_DESTROY);
+    } else {
+      finish();
+    }
   }
 
   private setupWindowMonitor(mainWindow: BrowserWindow) {
@@ -388,7 +409,10 @@ export class WindowService {
   }
 
   private setupContextMenu(mainWindow: BrowserWindow) {
+    if (this.contextMenuSetup) return;
+    this.contextMenuSetup = true;
     contextMenu.contextMenu(mainWindow.webContents);
+
     // setup context menu for all webviews
     app.on('web-contents-created', (_, webContents) => {
       contextMenu.contextMenu(webContents);
@@ -487,7 +511,9 @@ export class WindowService {
           window = this.createBrowserWindow();
           window.webContents.once('did-finish-load', () => {
             setTimeout(() => {
-              window!.webContents.send(IPC_CHANNEL.BROWSER_NAVIGATE, url);
+              if (window && !window.isDestroyed()) {
+                window.webContents.send(IPC_CHANNEL.BROWSER_NAVIGATE, url);
+              }
             }, 1000);
           });
         }
@@ -498,13 +524,16 @@ export class WindowService {
       return { action: 'deny' };
     });
 
-    this.setupWebRequestHeaders(mainWindow);
+    this.setupWebRequestHeaders(mainWindow.webContents.session);
   }
 
-  private setupWebRequestHeaders(mainWindow: BrowserWindow) {
+  private setupWebRequestHeaders(targetSession: Session) {
+    if (this.webRequestSessions.has(targetSession)) return;
+    this.webRequestSessions.add(targetSession);
+
     const reqMap = new Map<number, { redirect: string; headers: Record<string, any> }>();
 
-    mainWindow.webContents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
+    targetSession.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
       const { id, url } = details;
 
       // Block devtools detector requests
@@ -522,9 +551,24 @@ export class WindowService {
       }
     });
 
-    mainWindow.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
+    targetSession.webRequest.onBeforeSendHeaders((details, callback) => {
       const { id, requestHeaders: rawRequestHeaders, url } = details;
       let requestHeaders = convertHeaders(rawRequestHeaders);
+      const isApiRequest =
+        url.startsWith(`http://127.0.0.1:${PORT}/`) ||
+        url.startsWith(`http://localhost:${PORT}/`) ||
+        url.startsWith(`ws://127.0.0.1:${PORT}/`) ||
+        url.startsWith(`ws://localhost:${PORT}/`) ||
+        url.startsWith(`wss://127.0.0.1:${PORT}/`) ||
+        url.startsWith(`wss://localhost:${PORT}/`);
+      // Only bundled renderer windows may receive the local API credential.
+      if (
+        isApiRequest &&
+        typeof details.webContentsId === 'number' &&
+        this.trustedWebContentsIds.has(details.webContentsId)
+      ) {
+        requestHeaders[API_AUTH_HEADER] = API_AUTH_TOKEN;
+      }
       const customHeaders = reqMap.has(id) ? reqMap.get(id)!.headers : {};
       if (reqMap.has(id)) reqMap.delete(id);
 
@@ -561,29 +605,49 @@ export class WindowService {
       // Handle remove header
       requestHeaders = removePrefixHeaders(requestHeaders, REMOVE_TAG, true);
 
+      const webviewRule =
+        typeof details.webContentsId === 'number' ? this.webviewHeaderRules.get(details.webContentsId) : undefined;
+      if (webviewRule) {
+        let sameDomain = false;
+        try {
+          const sourceDomain = getDomain(url);
+          const rawDomain = getDomain(webviewRule.rawUrl);
+          sameDomain = Boolean(sourceDomain && rawDomain && sourceDomain === rawDomain);
+        } catch {
+          sameDomain = false;
+        }
+
+        if (sameDomain && webviewRule.headers) {
+          for (const [key, value] of Object.entries(webviewRule.headers)) {
+            requestHeaders[key] = value;
+          }
+        }
+      }
+
       callback({ requestHeaders });
     });
 
-    mainWindow.webContents.session.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, (details, callback) => {
+    targetSession.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, (details, callback) => {
       const { id, responseHeaders } = details;
-
-      // Frame
-      ['X-Frame-Options', 'x-frame-options'].forEach((key) => delete responseHeaders?.[key]);
-
-      // Content-Security-Policy
-      ['Content-Security-Policy', 'content-security-policy'].forEach((key) => delete responseHeaders?.[key]);
-
-      // Set-Cookie
-      ['Set-Cookie', 'set-cookie'].forEach((key) => {
-        if (responseHeaders?.[key]) {
-          responseHeaders[key] = responseHeaders![key].map((ck) => `${ck}; SameSite=None; Secure`);
-        }
-      });
 
       if (reqMap.has(id)) reqMap.delete(id);
 
-      callback({ cancel: false, responseHeaders });
+      callback({
+        cancel: false,
+        responseHeaders: {
+          ...responseHeaders,
+          'Document-Policy': ['include-js-call-stacks-in-crash-reports'],
+        },
+      });
     });
+  }
+
+  public setWebviewHeaderRule(webviewId: number, rawUrl: string, headers?: Record<string, any>) {
+    this.webviewHeaderRules.set(webviewId, { rawUrl, headers });
+  }
+
+  public clearWebviewHeaderRule(webviewId: number) {
+    this.webviewHeaderRules.delete(webviewId);
   }
 
   // see: https://github.com/electron/electron/issues/42055#issuecomment-2449365647
@@ -643,7 +707,11 @@ export class WindowService {
     }
   };
 
-  public createWindow(windowName: string, options?: BrowserWindowConstructorOptions): BrowserWindow {
+  public createWindow(
+    windowName: string,
+    options?: BrowserWindowConstructorOptions,
+    trustedRenderer: boolean = true,
+  ): BrowserWindow {
     let mainWindow = this.getWindow(windowName);
 
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -652,30 +720,47 @@ export class WindowService {
       return mainWindow;
     }
 
-    mainWindow = new BrowserWindow(
-      merge(
-        {
-          width: WINDOW_SIZE[WINDOW_NAME.OTHER].default.width,
-          height: WINDOW_SIZE[WINDOW_NAME.OTHER].default.height,
-          show: false,
-          autoHideMenuBar: true,
-          transparent: false,
-          ...(isLinux ? { icon: linuxIcon } : {}),
-          webPreferences: {
-            allowRunningInsecureContent: true,
-            backgroundThrottling: false,
-            contextIsolation: true,
-            nodeIntegration: false,
-            preload: join(import.meta.dirname, '../preload/index.js'),
-            sandbox: false,
-            spellcheck: false,
-            webSecurity: false,
-            zoomFactor: configManager.zoom,
-          },
+    const windowOptions: BrowserWindowConstructorOptions = merge(
+      {
+        width: WINDOW_SIZE[WINDOW_NAME.OTHER].default.width,
+        height: WINDOW_SIZE[WINDOW_NAME.OTHER].default.height,
+        show: false,
+        autoHideMenuBar: true,
+        transparent: false,
+        ...(isLinux ? { icon: linuxIcon } : {}),
+        webPreferences: {
+          allowRunningInsecureContent: false,
+          backgroundThrottling: false,
+          contextIsolation: true,
+          nodeIntegration: false,
+          preload: join(import.meta.dirname, '../preload/index.js'),
+          sandbox: false,
+          spellcheck: false,
+          webSecurity: true,
+          zoomFactor: configManager.zoom,
         },
-        options || {},
-      ),
+      },
+      options || {},
     );
+
+    if (!trustedRenderer) {
+      delete windowOptions.webPreferences?.preload;
+      windowOptions.webPreferences = {
+        ...windowOptions.webPreferences,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        webSecurity: true,
+      };
+    }
+
+    mainWindow = new BrowserWindow(windowOptions);
+
+    if (trustedRenderer) {
+      const webContentsId = mainWindow.webContents.id;
+      this.trustedWebContentsIds.add(webContentsId);
+      mainWindow.webContents.once('destroyed', () => this.trustedWebContentsIds.delete(webContentsId));
+    }
 
     this.replaceDevtoolsFont(mainWindow);
     this.setupContextMenu(mainWindow);
@@ -755,7 +840,8 @@ export class WindowService {
     }
 
     // init webview useragent
-    initSessionUserAgent();
+    const webviewSession = initSessionUserAgent();
+    this.setupWebRequestHeaders(webviewSession);
 
     return mainWindow;
   }
@@ -905,7 +991,7 @@ export class WindowService {
   }
 
   public createSnifferWindow(uuid: string): BrowserWindow {
-    const mainWindow = this.createWindow(`${WINDOW_NAME.SNIFFER}-${uuid}`, {});
+    const mainWindow = this.createWindow(`${WINDOW_NAME.SNIFFER}-${uuid}`, {}, false);
 
     mainWindow.once('ready-to-show', () => {
       if (configManager.debug) {
@@ -922,7 +1008,7 @@ export class WindowService {
   }
 
   public createSearchWindow(uuid: string): BrowserWindow {
-    const mainWindow = this.createWindow(`${WINDOW_NAME.SEARCH}-${uuid}`, {});
+    const mainWindow = this.createWindow(`${WINDOW_NAME.SEARCH}-${uuid}`, {}, false);
     mainWindow.webContents.userAgent = generateUserAgent();
 
     mainWindow.once('ready-to-show', () => {

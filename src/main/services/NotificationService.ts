@@ -13,7 +13,6 @@ class NotificationService {
   }
 
   public async sendNotification(notification: INotification) {
-    console.log('Sending notification:', notification);
     // Electron Notification API
     const electronNotification = new ElectronNotification({
       title: notification.title,
@@ -21,6 +20,7 @@ class NotificationService {
     });
 
     electronNotification.on('click', () => {
+      if (this.window.isDestroyed()) return;
       windowService.showWindow(this.window);
       this.window.webContents.send(IPC_CHANNEL.NOTIFICATION_CLICK, notification);
     });

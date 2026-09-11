@@ -1,6 +1,7 @@
-import { execSync, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { join } from 'node:path';
 import process from 'node:process';
+import { promisify } from 'node:util';
 
 import { loggerService } from '@logger';
 import type { IFileMode } from '@main/utils/file';
@@ -12,12 +13,12 @@ import {
   pathExist,
   pathExistSync,
 } from '@main/utils/file';
-import { execAsync } from '@main/utils/shell';
 import { isWindows, linebreak } from '@main/utils/systemInfo';
 import { LOG_MODULE } from '@shared/config/logger';
 import { isArray, isArrayEmpty, isPositiveFiniteNumber, isStrEmpty, isString } from '@shared/modules/validate';
 
 const logger = loggerService.withContext(LOG_MODULE.UTIL_PROCESS);
+const execFileAsync = promisify(execFile);
 
 /**
  * Get the appropriate binary name based on the operating system.
@@ -37,6 +38,7 @@ export function getBinaryName(name: string): string {
 export function downBinary(scriptPath: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     logger.info(`Running script at: ${scriptPath}`);
+    let settled = false;
 
     const nodeProcess = spawn(process.execPath, [scriptPath], {
       windowsHide: true,
@@ -56,6 +58,8 @@ export function downBinary(scriptPath: string): Promise<void> {
     });
 
     nodeProcess.on('close', (code) => {
+      if (settled) return;
+      settled = true;
       if (code === 0) {
         logger.info('Script completed successfully');
         resolve();
@@ -63,6 +67,13 @@ export function downBinary(scriptPath: string): Promise<void> {
         logger.warn(`Script exited with code ${code}`);
         reject(new Error(`Process exited with code ${code}`));
       }
+    });
+
+    nodeProcess.once('error', (error) => {
+      if (settled) return;
+      settled = true;
+      logger.error('Failed to start script process', error);
+      reject(error);
     });
   });
 }
@@ -121,15 +132,22 @@ export async function matchPs(keyword: string): Promise<number[]> {
   if (!isString(keyword) || isStrEmpty(keyword)) return [];
 
   try {
-    const cmd = isWindows
-      ? `for /f "tokens=3 delims=," %p in ('cmd /c wmic process get ProcessId^,CommandLine /format:csv ^| findstr /i "${keyword}" ^| findstr /v /i "wmic" ^| findstr /v /i "findstr"') do @echo %p`
-      : `pgrep -f "${keyword}"`;
-    logger.debug(`Match process cmd: ${cmd}`);
+    const { stdout: output } = isWindows
+      ? await execFileAsync(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:ZY_PROCESS_KEYWORD) } | Select-Object -ExpandProperty ProcessId',
+          ],
+          { encoding: 'utf8', env: { ...process.env, ZY_PROCESS_KEYWORD: keyword } },
+        )
+      : await execFileAsync('pgrep', ['-f', keyword], { encoding: 'utf8' });
+    const outputText = String(output);
+    if (!outputText) return [];
 
-    const { stdout: output } = await execAsync(cmd, { encoding: 'utf8' });
-    if (!output) return [];
-
-    const pids = output
+    const pids = outputText
       .split(linebreak)
       .map((line) => line.trim())
       .map((line) => (/^\d+$/.test(line) ? Number.parseInt(line) : null))
@@ -155,12 +173,18 @@ export function matchPsSync(keyword: string): number[] {
   if (!isString(keyword) || isStrEmpty(keyword)) return [];
 
   try {
-    const cmd = isWindows
-      ? `for /f "tokens=3 delims=," %p in ('cmd /c wmic process get ProcessId^,CommandLine /format:csv ^| findstr /i "${keyword}" ^| findstr /v /i "wmic" ^| findstr /v /i "findstr"') do @echo %p`
-      : `pgrep -f "${keyword}"`;
-    logger.debug(`Match process cmd: ${cmd}`);
-
-    const output = execSync(cmd, { encoding: 'utf8' });
+    const output = isWindows
+      ? execFileSync(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:ZY_PROCESS_KEYWORD) } | Select-Object -ExpandProperty ProcessId',
+          ],
+          { encoding: 'utf8', env: { ...process.env, ZY_PROCESS_KEYWORD: keyword } },
+        )
+      : execFileSync('pgrep', ['-f', keyword], { encoding: 'utf8' });
     if (!output) return [];
 
     const pids = output
@@ -189,15 +213,20 @@ export async function matchPort(port: number): Promise<number[]> {
   if (!isPositiveFiniteNumber(port)) return [];
 
   try {
-    const cmd = isWindows
-      ? `@for /f "tokens=5" %p in ('netstat -ano ^| findstr ":${port}" ^| findstr LISTENING') do @echo %p`
-      : `lsof -i :${port} -sTCP:LISTEN -P -n -t`;
-    logger.debug(`Match process cmd: ${cmd}`);
+    const { stdout: output } = isWindows
+      ? await execFileAsync('netstat', ['-ano'], { encoding: 'utf8' })
+      : await execFileAsync('lsof', ['-i', `:${port}`, '-sTCP:LISTEN', '-P', '-n', '-t'], { encoding: 'utf8' });
+    const outputText = String(output);
+    const filteredOutput = isWindows
+      ? outputText
+          .split(linebreak)
+          .filter((line) => line.includes(`:${port}`) && line.toUpperCase().includes('LISTENING'))
+          .map((line) => line.trim().split(/\s+/).at(-1) || '')
+          .join('\n')
+      : outputText;
+    if (!filteredOutput) return [];
 
-    const { stdout: output } = await execAsync(cmd, { encoding: 'utf8' });
-    if (!output) return [];
-
-    const pids = output
+    const pids = filteredOutput
       .split(linebreak)
       .map((line) => line.trim())
       .map((line) => (/^\d+$/.test(line) ? Number.parseInt(line) : null))
@@ -223,12 +252,13 @@ export function matchPortSync(port: number): number[] {
   if (!isPositiveFiniteNumber(port)) return [];
 
   try {
-    const cmd = isWindows
-      ? `@for /f "tokens=5" %p in ('netstat -ano ^| findstr ":${port}" ^| findstr LISTENING') do @echo %p`
-      : `lsof -i :${port} -sTCP:LISTEN -P -n -t`;
-    logger.debug(`Match process cmd: ${cmd}`);
-
-    const output = execSync(cmd, { encoding: 'utf8' });
+    const output = isWindows
+      ? execFileSync('netstat', ['-ano'], { encoding: 'utf8' })
+          .split(linebreak)
+          .filter((line) => line.includes(`:${port}`) && line.toUpperCase().includes('LISTENING'))
+          .map((line) => line.trim().split(/\s+/).at(-1) || '')
+          .join('\n')
+      : execFileSync('lsof', ['-i', `:${port}`, '-sTCP:LISTEN', '-P', '-n', '-t'], { encoding: 'utf8' });
     if (!output) return [];
 
     const pids = output
@@ -256,12 +286,11 @@ export async function killPid(pids: number[]): Promise<boolean> {
   if (!isArray(pids) || isArrayEmpty(pids)) return true;
 
   try {
-    const cmd = isWindows
-      ? `taskkill ${pids.map((pid) => `/PID ${pid}`).join(' ')} /T /F`
-      : `kill -9 ${pids.join(' ')}`;
-    logger.debug(`Kill process cmd: ${cmd}`);
+    const validPids = pids.filter((pid) => Number.isSafeInteger(pid) && pid > 1 && pid !== process.pid);
+    if (isArrayEmpty(validPids)) return true;
 
-    await execAsync(cmd);
+    if (isWindows) await execFileAsync('taskkill', [...validPids.flatMap((pid) => ['/PID', String(pid)]), '/T', '/F']);
+    else await execFileAsync('kill', ['-9', ...validPids.map(String)]);
     return true;
   } catch (error) {
     logger.error('Failed to kill process:', error as Error);
@@ -278,12 +307,14 @@ export function killPidSync(pids: number[]): boolean {
   if (!isArray(pids) || isArrayEmpty(pids)) return true;
 
   try {
-    const cmd = isWindows
-      ? `taskkill ${pids.map((pid) => `/PID ${pid}`).join(' ')} /T /F`
-      : `kill -9 ${pids.join(' ')}`;
-    logger.debug(`Kill process cmd: ${cmd}`);
+    const validPids = pids.filter((pid) => Number.isSafeInteger(pid) && pid > 1 && pid !== process.pid);
+    if (isArrayEmpty(validPids)) return true;
 
-    execSync(cmd, { stdio: 'ignore' });
+    if (isWindows) {
+      execFileSync('taskkill', [...validPids.flatMap((pid) => ['/PID', String(pid)]), '/T', '/F'], { stdio: 'ignore' });
+    } else {
+      execFileSync('kill', ['-9', ...validPids.map(String)], { stdio: 'ignore' });
+    }
     return true;
   } catch (error) {
     logger.error('Failed to kill process:', error as Error);
@@ -297,8 +328,7 @@ export function killPidSync(pids: number[]): boolean {
  */
 export async function isWindowsPowerShell(): Promise<boolean> {
   try {
-    // await execAsync('powershell -Command "exit"');
-    await execAsync('where powershell');
+    await execFileAsync('where', ['powershell']);
     return true;
   } catch {
     return false;
@@ -311,8 +341,7 @@ export async function isWindowsPowerShell(): Promise<boolean> {
  */
 export function isWindowsPowerShellSync(): boolean {
   try {
-    // execSync('powershell -Command "exit"', { stdio: 'ignore' });
-    execSync('where powershell', { stdio: 'ignore' });
+    execFileSync('where', ['powershell'], { stdio: 'ignore' });
     return true;
   } catch {
     return false;

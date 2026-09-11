@@ -1,4 +1,3 @@
-import https from 'node:https';
 import { posix } from 'node:path';
 import type { Stream } from 'node:stream';
 
@@ -29,6 +28,14 @@ export class WebdavStorage {
 
   constructor() {}
 
+  private getRemoteFilePath(filename: string): string {
+    const remoteFilePath = posix.normalize(posix.join(this.baseDirPath, filename));
+    if (remoteFilePath !== this.baseDirPath && !remoteFilePath.startsWith(`${this.baseDirPath}/`)) {
+      throw new Error('Invalid WebDAV file path');
+    }
+    return remoteFilePath;
+  }
+
   public initClient = async (config: IWebdavConfig): Promise<void> => {
     const { url, username, password } = config;
 
@@ -43,9 +50,6 @@ export class WebdavStorage {
         password,
         maxBodyLength: Infinity,
         maxContentLength: Infinity,
-        httpsAgent: new https.Agent({
-          rejectUnauthorized: false,
-        }),
       });
     } catch (error) {
       logger.error('Error initializing WebDAV client:', error as Error);
@@ -73,7 +77,7 @@ export class WebdavStorage {
       throw error;
     }
 
-    const remoteFilePath = posix.join(this.baseDirPath, filename);
+    const remoteFilePath = this.getRemoteFilePath(filename);
 
     try {
       return await this.client.putFileContents(remoteFilePath, data, options);
@@ -88,7 +92,7 @@ export class WebdavStorage {
       throw new Error('WebDAV client not initialized');
     }
 
-    const remoteFilePath = posix.join(this.baseDirPath, filename);
+    const remoteFilePath = this.getRemoteFilePath(filename);
 
     try {
       const fileExists = await this.client!.exists(remoteFilePath);
@@ -136,7 +140,7 @@ export class WebdavStorage {
     }
 
     try {
-      return await this.client.createDirectory(path, options);
+      return await this.client.createDirectory(this.getRemoteFilePath(path), options);
     } catch (error) {
       logger.error('Error creating directory on WebDAV:', error as Error);
       throw error;
@@ -148,7 +152,7 @@ export class WebdavStorage {
       throw new Error('WebDAV client not initialized');
     }
 
-    const remoteFilePath = posix.join(this.baseDirPath, filename);
+    const remoteFilePath = this.getRemoteFilePath(filename);
 
     try {
       return await this.client.deleteFile(remoteFilePath);

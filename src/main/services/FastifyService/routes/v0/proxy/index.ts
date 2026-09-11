@@ -11,8 +11,10 @@ import { base64 } from '@zy/crypto';
 import type { FastifyPluginAsync } from 'fastify';
 
 import { generateCacheKey } from './utils/cache';
+import { isSafeRemoteUrl } from './utils/safeRemoteUrl';
 
 const API_PREFIX = 'proxy';
+const PROXY_CACHE_TTL = 10 * 60 * 1000;
 
 const api: FastifyPluginAsync = async (fastify): Promise<void> => {
   fastify.head<{ Querystring: GetProxyCacheRequest }>(
@@ -24,7 +26,7 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
       try {
         const { url } = req.query;
 
-        if (!url) return reply.code(400).send();
+        if (!url || !(await isSafeRemoteUrl(url))) return reply.code(400).send();
 
         const cacheKey = generateCacheKey(url);
         const cacheData: Array<string> | null = await fastify.cache.get(cacheKey);
@@ -44,6 +46,7 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
           const { data: resp } = await request.request({
             url,
             method: 'GET',
+            fetchOptions: { redirect: 'error' },
             headers: {
               'User-Agent': USER_AGENT.PC_DARWIN_CHROME,
             },
@@ -75,7 +78,7 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
       try {
         const { url } = req.query;
 
-        if (!url) {
+        if (!url || !(await isSafeRemoteUrl(url))) {
           return reply.code(400).send({ code: -1, msg: 'Invalid URL', data: null });
         }
 
@@ -105,6 +108,7 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
           const { data: resp } = await request.request({
             url,
             method: 'GET',
+            fetchOptions: { redirect: 'error' },
             headers: {
               'User-Agent': USER_AGENT.PC_DARWIN_CHROME,
             },
@@ -137,12 +141,12 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
       try {
         const { text, url } = req.body;
 
-        if (!text || !url) {
+        if (!text || !url || !(await isSafeRemoteUrl(url))) {
           return reply.code(400).send({ code: -1, msg: 'Text and URL parameters are required', data: null });
         }
 
         const cacheKey = generateCacheKey(url);
-        fastify.cache.set(cacheKey, text);
+        fastify.cache.set(cacheKey, text, PROXY_CACHE_TTL);
 
         return reply.code(200).send({
           code: 0,

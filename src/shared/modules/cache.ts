@@ -6,6 +6,7 @@ interface CacheItem<T> {
 
 export class CacheService {
   private static cache: Map<string, CacheItem<any>> = new Map();
+  private static readonly maxEntries = 1000;
 
   /**
    * Set cache
@@ -14,6 +15,11 @@ export class CacheService {
    * @param duration Cache duration (in milliseconds)
    */
   static set<T>(key: string, data: T, duration: number = 0): void {
+    if (!this.cache.has(key) && this.cache.size >= this.maxEntries) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey !== undefined) this.cache.delete(oldestKey);
+    }
+
     this.cache.set(key, {
       data,
       timestamp: Date.now(),

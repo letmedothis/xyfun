@@ -3,6 +3,7 @@ import { windowService } from '@main/services/WindowService';
 import { getTimeout } from '@main/utils/tool';
 import { LOG_MODULE } from '@shared/config/logger';
 import { WINDOW_NAME } from '@shared/config/window';
+import { isHttp } from '@shared/modules/validate';
 
 const logger = loggerService.withContext(LOG_MODULE.SEARCH);
 
@@ -41,6 +42,8 @@ export class SearchService {
   }
 
   public async openUrlInSearchWindow(uid: string, url: string, timeout?: number): Promise<any> {
+    if (!isHttp(url)) throw new Error('Search URL must use HTTP or HTTPS');
+
     const windowName = this.getWindowName(uid);
     let mainWindow = windowService.getWindow(windowName);
 
@@ -49,20 +52,35 @@ export class SearchService {
     }
 
     logger.debug(`Search url: ${url}`);
-    await mainWindow.loadURL(url);
-
-    // Get the page content after loading the URL
-    // Wait for the page to fully load before getting the content
-    await new Promise<void>((resolve) => {
-      const loadTimeout = setTimeout(resolve, getTimeout(timeout)); // default timeout
-      mainWindow.webContents.once('did-finish-load', () => {
-        clearTimeout(loadTimeout);
-        setTimeout(resolve, 500); // Small delay to ensure JavaScript has executed
-      });
-    });
+    try {
+      let loadTimer: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([
+          mainWindow.loadURL(url),
+          new Promise<never>((_, reject) => {
+            loadTimer = setTimeout(() => reject(new Error('Search page load timed out')), getTimeout(timeout));
+            loadTimer.unref();
+          }),
+        ]);
+      } finally {
+        if (loadTimer) clearTimeout(loadTimer);
+      }
+      // Give scripts scheduled immediately after page load a short time to update the DOM.
+      await new Promise<void>((resolve) => setTimeout(resolve, 500));
+    } catch (error) {
+      if (!mainWindow.isDestroyed()) mainWindow.webContents.stop();
+      logger.error(`Failed to load search URL: ${url}`, error as Error);
+      return '';
+    }
 
     // Get the page content after ensuring it's fully loaded
-    return await mainWindow.webContents.executeJavaScript('document.documentElement.outerHTML');
+    try {
+      if (mainWindow.isDestroyed()) return '';
+      return await mainWindow.webContents.executeJavaScript('document.documentElement.outerHTML');
+    } catch (error) {
+      logger.error('Failed to read search page content', error as Error);
+      return '';
+    }
   }
 }
 

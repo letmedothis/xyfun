@@ -2,7 +2,7 @@
   <div class="msgbox-action-section">
     <t-alert>
       <template #message>
-        <span v-html="config.msg || config.htmlMsg"></span>
+        <span>{{ config.msg || config.htmlMsg }}</span>
       </template>
     </t-alert>
 

@@ -39,7 +39,7 @@
             <t-popup v-if="item.help" destroy-on-close>
               <info-circle-icon class="help-icon" />
               <template #content>
-                <span v-html="item.help"></span>
+                <span>{{ item.help }}</span>
               </template>
             </t-popup>
           </template>
