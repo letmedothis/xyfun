@@ -9,6 +9,7 @@ use objc::sel_impl;
 
 use crate::api::LibVlcApi;
 use crate::ffi::LibvlcMediaPlayer;
+use crate::platform::read_handle;
 use crate::state::VlcAddonState;
 use crate::util::to_napi_error;
 
@@ -104,8 +105,18 @@ pub unsafe fn apply_output_window(
   api: &LibVlcApi,
   player: *mut LibvlcMediaPlayer,
   state: &mut VlcAddonState,
+  handle: &[u8],
 ) -> NapiResult<()> {
-  let parent_view = state.output_parent_view;
+  let raw = usize::from_ne_bytes(read_handle(handle, "NSView")?);
+  if raw == 0 {
+    return Err(napi::Error::new(
+      napi::Status::InvalidArg,
+      "window handle must not be zero".to_string(),
+    ));
+  }
+
+  let parent_view = raw as *mut Object;
+  state.output_parent_view = parent_view;
   let css_rect = state.video_rect;
   let parent_frame: NSRect = msg_send![parent_view, frame];
   let frame = css_to_ns_rect(css_rect, parent_frame.size.height);

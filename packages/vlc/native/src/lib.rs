@@ -10,8 +10,6 @@ mod types;
 mod util;
 
 use std::env;
-#[cfg(all(unix, not(target_os = "macos")))]
-use std::ffi::c_uint;
 use std::ffi::c_void;
 use std::ffi::{c_char, c_float, c_int, c_longlong, CString};
 use std::path::Path;
@@ -485,81 +483,22 @@ pub fn attach(handle: Buffer, instance_id: Option<String>) -> NapiResult<()> {
   unsafe {
     #[cfg(target_os = "macos")]
     {
-      if handle.len() < std::mem::size_of::<usize>() {
-        return Err(Error::new(
-          Status::InvalidArg,
-          "invalid NSView handle".to_string(),
-        ));
-      }
-
-      let parent_view = *(handle.as_ref().as_ptr() as *const *mut objc::runtime::Object);
-
-      if parent_view.is_null() {
-        return Err(Error::new(
-          Status::InvalidArg,
-          "window handle must not be zero".to_string(),
-        ));
-      }
-
-      state.output_parent_view = parent_view;
-
-      {
-        let api = &*api_ptr;
-        platform::macos::apply_output_window(api, player, state)?;
-      }
+      let api = &*api_ptr;
+      platform::macos::apply_output_window(api, player, state, handle.as_ref())?;
 
       return Ok(());
     }
 
     #[cfg(target_os = "windows")]
     {
-      const SIZE: usize = std::mem::size_of::<usize>();
-
-      if handle.len() < SIZE {
-        return Err(Error::new(
-          Status::InvalidArg,
-          "invalid HWND handle".to_string(),
-        ));
-      }
-
-      let raw = usize::from_le_bytes(handle.as_ref()[..SIZE].try_into().unwrap());
-
-      if raw < 0 {
-        return Err(Error::new(
-          Status::InvalidArg,
-          "window handle must not be zero".to_string(),
-        ));
-      }
-
-      match state.api()?.libvlc_media_player_set_hwnd {
-        Some(setter) => setter(player, raw as *mut c_void),
-        None => return Err(to_napi_error("libVLC does not expose hwnd setter")),
-      };
+      let api = &*api_ptr;
+      platform::windows::apply_output_window(api, player, handle.as_ref())?;
     }
 
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(target_os = "linux")]
     {
-      const SIZE: usize = std::mem::size_of::<u32>();
-
-      if handle.len() < SIZE {
-        return Err(Error::new(
-          Status::InvalidArg,
-          "invalid XWindow handle".to_string(),
-        ));
-      }
-
-      let raw = u32::from_le_bytes(handle.as_ref()[..SIZE].try_into().unwrap());
-      if raw < 0 {
-        return Err(Error::new(
-          Status::InvalidArg,
-          "window handle must not be zero".to_string(),
-        ));
-      }
-
-      match state.api()?.libvlc_media_player_set_xwindow {
-        Some(setter) => setter(player, raw as c_uint),
-        None => return Err(to_napi_error("libVLC does not expose xwindow setter")),
-      };
+      let api = &*api_ptr;
+      platform::linux::apply_output_window(api, player, handle.as_ref())?;
     }
   }
 
