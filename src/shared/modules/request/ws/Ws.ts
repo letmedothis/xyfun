@@ -24,7 +24,7 @@ export class VWs {
     return transform;
   }
 
-  get<T = any>(config: IWsRequestConfig, options?: RequestOptions): Promise<T> {
+  get<T = any>(config: Omit<IWsRequestConfig, 'method'>, options?: RequestOptions): Promise<T> {
     return this.request({ ...config, method: 'GET' }, options);
   }
 
