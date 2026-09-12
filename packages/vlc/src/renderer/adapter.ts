@@ -261,10 +261,11 @@ export class VlcAdapter {
   private normalizeFrameSize(width: number, height: number): VlcFrameSize {
     const safeWidth = Number.isFinite(width) ? Math.round(width) : DEFAULT_FRAME_SIZE.width;
     const safeHeight = Number.isFinite(height) ? Math.round(height) : DEFAULT_FRAME_SIZE.height;
+    const scale = Math.min(1, 1920 / safeWidth, 1080 / safeHeight);
 
     return {
-      width: Math.max(1, Math.min(3840, safeWidth)),
-      height: Math.max(1, Math.min(2160, safeHeight)),
+      width: Math.max(1, Math.round(safeWidth * scale)),
+      height: Math.max(1, Math.round(safeHeight * scale)),
     };
   }
 

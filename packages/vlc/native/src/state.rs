@@ -47,7 +47,8 @@ pub struct VlcAddonState {
 
   pub current_frame: FrameFormat,
   pub pending_frame: Option<FrameFormat>,
-  pub frame_buffer: Vec<u8>,
+  pub write_frame_buffer: Vec<u8>,
+  pub ready_frame_buffer: Vec<u8>,
   pub frame_dirty: bool,
   pub frame_in_use: bool,
   pub latest_buffering_percent: f64,
@@ -76,7 +77,8 @@ impl VlcAddonState {
       context: None,
       current_frame: FrameFormat::default(),
       pending_frame: None,
-      frame_buffer: vec![0; (1280 * 720 * 4) as usize],
+      write_frame_buffer: vec![0; (1280 * 720 * 4) as usize],
+      ready_frame_buffer: vec![0; (1280 * 720 * 4) as usize],
       frame_dirty: false,
       frame_in_use: false,
       latest_buffering_percent: 0.0,
@@ -155,7 +157,8 @@ impl VlcAddonState {
     self.latest_buffering_percent = 0.0;
     self.debug_enabled = false;
     self.pending_start_progress = None;
-    self.frame_buffer.clear();
+    self.write_frame_buffer.clear();
+    self.ready_frame_buffer.clear();
   }
 
   pub fn detach_events(&mut self) {

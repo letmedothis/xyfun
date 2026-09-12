@@ -360,9 +360,8 @@ export class CdpElectron {
         });
       });
 
-      await this.navigateToUrl(page, url);
-
-      return await Promise.race([timeoutPromise, snifferPromise]);
+      const navigationPromise = this.navigateToUrl(page, url).then(() => snifferPromise);
+      return await Promise.race([timeoutPromise, navigationPromise]);
     } catch (error) {
       logger.error('SnifferMedia error', error as Error);
       throw error;

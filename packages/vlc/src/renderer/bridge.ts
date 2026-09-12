@@ -23,6 +23,7 @@ export interface IVlcBridge {
 }
 
 export function createBridge(path: IVlcInitPath, options: IVlcInitOptions, instanceId?: string): IVlcBridge {
+  const FRAME_REQUEST_INTERVAL_MS = 1000 / 30;
   const ipcRenderer = (window as unknown as { electron: { ipcRenderer: Electron.IpcRenderer } }).electron.ipcRenderer;
   const initPath = { libPath: path.libPath ?? '', pluginPath: path.pluginPath ?? '' };
   const defaultUrl = options.url ?? '';
@@ -33,6 +34,7 @@ export function createBridge(path: IVlcInitPath, options: IVlcInitOptions, insta
   const volumeStep = options.volumeStep ?? 0.05;
   let lastFrame: Uint8Array = new Uint8Array(0);
   let frameRequestInFlight = false;
+  let lastFrameRequestAt = Number.NEGATIVE_INFINITY;
   let created = false;
   let instance_id: string | null = instanceId ?? null;
   let lifecycleVersion = 0;
@@ -157,7 +159,9 @@ export function createBridge(path: IVlcInitPath, options: IVlcInitOptions, insta
     },
     getFrameRgba(): Uint8Array {
       if (!created) return lastFrame;
-      if (!frameRequestInFlight) {
+      const now = performance.now();
+      if (!frameRequestInFlight && now - lastFrameRequestAt >= FRAME_REQUEST_INTERVAL_MS) {
+        lastFrameRequestAt = now;
         frameRequestInFlight = true;
         void invoke(VLC_IPC_CHANNEL.VLC_GET_FRAME_RGBA, instance_id)
           .then((frame) => {
@@ -242,6 +246,7 @@ export function createBridge(path: IVlcInitPath, options: IVlcInitOptions, insta
       created = false;
       lifecycleVersion++;
       frameRequestInFlight = false;
+      lastFrameRequestAt = Number.NEGATIVE_INFINITY;
       lastFrame = new Uint8Array(0);
       return invoke(VLC_IPC_CHANNEL.VLC_DESTROY, instance_id).then(() => {
         instance_id = null;

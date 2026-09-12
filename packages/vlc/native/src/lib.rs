@@ -26,7 +26,9 @@ use ffi::{LibvlcInstance, LibvlcMediaPlayer};
 
 use state::{default_instance_id, lock_instances, next_instance_index};
 use types::{CreateOptions, CreatePath, Track, VlcPlayerState};
-use util::{is_http_media, latest_vlc_error, normalize_media_path, state_from_raw, to_napi_error, track_list};
+use util::{
+  is_http_media, latest_vlc_error, normalize_media_path, state_from_raw, to_napi_error, track_list,
+};
 
 fn frame_buffer_size(pitch: u32, height: u32) -> usize {
   (pitch.saturating_mul(height)).max(4) as usize
@@ -42,7 +44,9 @@ fn apply_pending_frame_format_if_safe(state: &mut state::VlcAddonState) {
   };
 
   state.current_frame = frame;
-  state.frame_buffer = vec![0; frame_buffer_size(frame.pitch, frame.height)];
+  let buffer_size = frame_buffer_size(frame.pitch, frame.height);
+  state.write_frame_buffer = vec![0; buffer_size];
+  state.ready_frame_buffer = vec![0; buffer_size];
   state.frame_dirty = false;
 }
 
@@ -56,13 +60,13 @@ unsafe extern "C" fn video_lock_callback(
       let state = instances.values_mut().find(|s| s.index == instance_index);
       match state {
         Some(state) => {
-          if state.frame_buffer.is_empty() {
+          if state.write_frame_buffer.is_empty() {
             let size = frame_buffer_size(state.current_frame.pitch, state.current_frame.height);
-            state.frame_buffer.resize(size, 0);
+            state.write_frame_buffer.resize(size, 0);
           }
           state.frame_in_use = true;
           if !planes.is_null() {
-            let ptr = state.frame_buffer.as_mut_ptr() as *mut c_void;
+            let ptr = state.write_frame_buffer.as_mut_ptr() as *mut c_void;
             *planes = ptr;
             return ptr;
           }
@@ -83,6 +87,7 @@ unsafe extern "C" fn video_unlock_callback(
   let instance_index = _opaque as usize;
   if let Ok(mut instances) = lock_instances() {
     if let Some(state) = instances.values_mut().find(|s| s.index == instance_index) {
+      std::mem::swap(&mut state.write_frame_buffer, &mut state.ready_frame_buffer);
       state.frame_in_use = false;
       state.frame_dirty = true;
     }
@@ -204,15 +209,19 @@ fn load_media(instance_id: &str, options: CreateOptions) -> NapiResult<()> {
   // log level
   if debug.unwrap_or(false) {
     let opt = CString::new(":verbose=2").map_err(|e| to_napi_error(e.to_string()))?;
-    unsafe { (api.libvlc_media_add_option)(media, opt.as_ptr()); }
+    unsafe {
+      (api.libvlc_media_add_option)(media, opt.as_ptr());
+    }
   }
 
   // start_time (ms → seconds)
   if let Some(start_time) = start_time {
     let start_secs = start_time.max(0) as f64 / 1000.0;
-    let opt =
-      CString::new(format!(":start-time={start_secs}")).map_err(|e| to_napi_error(e.to_string()))?;
-    unsafe { (api.libvlc_media_add_option)(media, opt.as_ptr()); }
+    let opt = CString::new(format!(":start-time={start_secs}"))
+      .map_err(|e| to_napi_error(e.to_string()))?;
+    unsafe {
+      (api.libvlc_media_add_option)(media, opt.as_ptr());
+    }
   }
 
   // buffer caching
@@ -220,10 +229,16 @@ fn load_media(instance_id: &str, options: CreateOptions) -> NapiResult<()> {
     let caching_ms = buffer_cache.saturating_mul(1000);
     let opt = CString::new(format!(
       "{}={caching_ms}",
-      if is_network_media { ":network-caching" } else { ":file-caching" }
+      if is_network_media {
+        ":network-caching"
+      } else {
+        ":file-caching"
+      }
     ))
     .map_err(|e| to_napi_error(e.to_string()))?;
-    unsafe { (api.libvlc_media_add_option)(media, opt.as_ptr()); }
+    unsafe {
+      (api.libvlc_media_add_option)(media, opt.as_ptr());
+    }
   }
 
   // network headers
@@ -242,12 +257,15 @@ fn load_media(instance_id: &str, options: CreateOptions) -> NapiResult<()> {
         if key.eq_ignore_ascii_case("referer") || key.eq_ignore_ascii_case("referrer") {
           let opt = CString::new(format!(":http-referrer={value}"))
             .map_err(|e| to_napi_error(e.to_string()))?;
-          unsafe { (api.libvlc_media_add_option)(media, opt.as_ptr()); }
-        } else if key.eq_ignore_ascii_case("user-agent") || key.eq_ignore_ascii_case("useragent")
-        {
+          unsafe {
+            (api.libvlc_media_add_option)(media, opt.as_ptr());
+          }
+        } else if key.eq_ignore_ascii_case("user-agent") || key.eq_ignore_ascii_case("useragent") {
           let opt = CString::new(format!(":http-user-agent={value}"))
             .map_err(|e| to_napi_error(e.to_string()))?;
-          unsafe { (api.libvlc_media_add_option)(media, opt.as_ptr()); }
+          unsafe {
+            (api.libvlc_media_add_option)(media, opt.as_ptr());
+          }
         } else {
           custom_headers.push(format!("{key}: {value}"));
         }
@@ -257,7 +275,9 @@ fn load_media(instance_id: &str, options: CreateOptions) -> NapiResult<()> {
     if !custom_headers.is_empty() {
       let opt = CString::new(format!(":http-custom-header={}", custom_headers.join("\n")))
         .map_err(|e| to_napi_error(e.to_string()))?;
-      unsafe { (api.libvlc_media_add_option)(media, opt.as_ptr()); }
+      unsafe {
+        (api.libvlc_media_add_option)(media, opt.as_ptr());
+      }
     }
   }
 
@@ -364,7 +384,9 @@ fn load_media(instance_id: &str, options: CreateOptions) -> NapiResult<()> {
     let raw = unsafe { (api.libvlc_audio_get_mute)(player) };
     let is_muted = raw != 0;
     if is_muted != muted {
-      unsafe { (api.libvlc_audio_toggle_mute)(player); }
+      unsafe {
+        (api.libvlc_audio_toggle_mute)(player);
+      }
     }
   }
 
@@ -379,7 +401,9 @@ fn load_media(instance_id: &str, options: CreateOptions) -> NapiResult<()> {
     }
 
     if let Some(rate) = playback_rate {
-      unsafe { (api.libvlc_media_player_set_rate)(player, rate as c_float); }
+      unsafe {
+        (api.libvlc_media_player_set_rate)(player, rate as c_float);
+      }
     }
   }
 
@@ -521,8 +545,10 @@ pub fn set_frame_format(width: u32, height: u32, instance_id: Option<String>) ->
     .get_mut(&id)
     .ok_or_else(|| to_napi_error(format!("instance not found: {id}")))?;
 
-  let clamped_w = width.min(3840);
-  let clamped_h = height.min(2160);
+  // Raw frames cross N-API and Electron IPC, so cap software rendering at
+  // 1080p to keep per-frame copies bounded (about 8 MiB).
+  let clamped_w = width.min(1920);
+  let clamped_h = height.min(1080);
   let pitch = clamped_w.saturating_mul(4);
   state.pending_frame = Some(state::FrameFormat::new(clamped_w, clamped_h, pitch));
 
@@ -548,11 +574,11 @@ pub fn get_frame_rgba(instance_id: Option<String>) -> NapiResult<Option<Buffer>>
     .get_mut(&id)
     .ok_or_else(|| to_napi_error(format!("instance not found: {id}")))?;
 
-  if state.frame_buffer.is_empty() || !state.frame_dirty {
+  if state.ready_frame_buffer.is_empty() || !state.frame_dirty {
     return Ok(None);
   }
 
-  let mut data = state.frame_buffer.clone();
+  let mut data = state.ready_frame_buffer.clone();
   for px in data.chunks_exact_mut(4) {
     px.swap(0, 2);
     px[3] = 255;
@@ -612,7 +638,12 @@ pub fn create(
   let id = resolve_instance_id(instance_id);
   destroy(Some(id.clone()))?;
   load_dylib(&id, path.lib_path, path.plugin_path)?;
-  load_media(&id, options)?;
+  if let Err(error) = load_media(&id, options) {
+    // load_dylib has already inserted an initialized libVLC instance. Roll it
+    // back when any later media setup step fails.
+    let _ = destroy(Some(id.clone()));
+    return Err(error);
+  }
 
   Ok(id)
 }
@@ -666,17 +697,19 @@ pub fn pause(instance_id: Option<String>) -> NapiResult<()> {
   let state = instances
     .get(&id)
     .ok_or_else(|| to_napi_error(format!("instance not found: {id}")))?;
-  let api = state.api()?;
+  let api = state.api()? as *const LibVlcApi;
   let context = state.context()?;
 
   if context.player.is_null() {
     return Ok(());
   }
 
-  let raw_state = unsafe { (api.libvlc_media_player_get_state)(context.player) };
+  let player = context.player;
+  let raw_state = unsafe { ((*api).libvlc_media_player_get_state)(player) };
+  drop(instances);
   if matches!(state_from_raw(raw_state), VlcPlayerState::Playing) {
     unsafe {
-      (api.libvlc_media_player_set_pause)(context.player, 1);
+      ((*api).libvlc_media_player_set_pause)(player, 1);
     }
   }
 
@@ -734,15 +767,18 @@ pub fn stop(instance_id: Option<String>) -> NapiResult<()> {
   let state = instances
     .get(&id)
     .ok_or_else(|| to_napi_error(format!("instance not found: {id}")))?;
-  let api = state.api()?;
+  let api = state.api()? as *const LibVlcApi;
   let context = state.context()?;
 
   if context.player.is_null() {
     return Ok(());
   }
 
+  let player = context.player;
+  drop(instances);
+
   unsafe {
-    (api.libvlc_media_player_stop)(context.player);
+    ((*api).libvlc_media_player_stop)(player);
   }
 
   Ok(())
@@ -859,14 +895,15 @@ pub fn seek(time: i64, instance_id: Option<String>) -> NapiResult<()> {
   let state = instances
     .get(&id)
     .ok_or_else(|| to_napi_error(format!("instance not found: {id}")))?;
-  let api = state.api()?;
+  let api = state.api()? as *const LibVlcApi;
   let context = state.context()?;
 
   if context.player.is_null() {
     return Ok(());
   }
 
-  let duration = unsafe { (api.libvlc_media_player_get_length)(context.player) };
+  let player = context.player;
+  let duration = unsafe { ((*api).libvlc_media_player_get_length)(player) };
 
   let target = if duration > 0 {
     (time as c_longlong).clamp(0, duration)
@@ -874,8 +911,9 @@ pub fn seek(time: i64, instance_id: Option<String>) -> NapiResult<()> {
     (time as c_longlong).max(0)
   };
 
+  drop(instances);
   unsafe {
-    (api.libvlc_media_player_set_time)(context.player, target);
+    ((*api).libvlc_media_player_set_time)(player, target);
   }
 
   Ok(())
@@ -1191,10 +1229,9 @@ pub fn set_audio_track(id: i32, instance_id: Option<String>) -> NapiResult<()> {
 #[napi]
 pub fn destroy(instance_id: Option<String>) -> NapiResult<()> {
   let id = resolve_instance_id(instance_id);
-  let (api, player, vlc_instance) = {
-    let mut instances = lock_instances()?;
-
-    let state = match instances.get_mut(&id) {
+  let (api, player, vlc_instance, attached_events, instance_index) = {
+    let instances = lock_instances()?;
+    let state = match instances.get(&id) {
       Some(s) => s,
       None => return Ok(()),
     };
@@ -1205,46 +1242,30 @@ pub fn destroy(instance_id: Option<String>) -> NapiResult<()> {
       .map(|ctx| (ctx.player, ctx.instance))
       .unwrap_or((ptr::null_mut(), ptr::null_mut()));
 
-    if let Some(api) = state.api.as_ref() {
-      if !player.is_null() {
-        unsafe {
-          let manager = (api.libvlc_media_player_event_manager)(player);
-          if !manager.is_null() {
-            for event in &state.attached_events {
-              (api.libvlc_event_detach)(manager, *event, on_vlc_event, state.index as *mut c_void);
-            }
-          }
-          if let Some(set_callbacks) = api.libvlc_video_set_callbacks {
-            set_callbacks(player, None, None, None, ptr::null_mut());
-          }
-        }
-      }
-    }
-
-    state.attached_events.clear();
-    state.event_callbacks.clear();
-    if let Some(context) = state.context.as_mut() {
-      context.player = ptr::null_mut();
-    }
-    let api = state.api.take();
-
-    state.pending_frame = None;
-    state.frame_in_use = false;
-    state.frame_dirty = false;
-    state.latest_buffering_percent = 0.0;
-    #[cfg(target_os = "macos")]
-    {
-      state.output_parent_view = ptr::null_mut();
-      state.video_rect = [0.0; 4];
-      state.vlc_subview = ptr::null_mut();
-    }
-
-    (api, player, vlc_instance)
+    (
+      state.api.as_ref().map(|api| api as *const LibVlcApi),
+      player,
+      vlc_instance,
+      state.attached_events.clone(),
+      state.index,
+    )
   };
 
-  if let Some(api) = api.as_ref() {
+  // Keep the state visible to any in-flight callback, but perform all
+  // potentially re-entrant libVLC operations without the global lock.
+  if let Some(api) = api {
+    let api = unsafe { &*api };
     unsafe {
       if !player.is_null() {
+        let manager = (api.libvlc_media_player_event_manager)(player);
+        if !manager.is_null() {
+          for event in &attached_events {
+            (api.libvlc_event_detach)(manager, *event, on_vlc_event, instance_index as *mut c_void);
+          }
+        }
+        if let Some(set_callbacks) = api.libvlc_video_set_callbacks {
+          set_callbacks(player, None, None, None, ptr::null_mut());
+        }
         (api.libvlc_media_player_stop)(player);
         (api.libvlc_media_player_release)(player);
       }
@@ -1256,8 +1277,12 @@ pub fn destroy(instance_id: Option<String>) -> NapiResult<()> {
 
   let mut instances = lock_instances()?;
   if let Some(mut state) = instances.remove(&id) {
+    state.attached_events.clear();
+    state.event_callbacks.clear();
     state.context = None;
-    state.frame_buffer.clear();
+    state.api = None;
+    state.write_frame_buffer.clear();
+    state.ready_frame_buffer.clear();
   }
 
   Ok(())
