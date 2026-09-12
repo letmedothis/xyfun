@@ -11,9 +11,13 @@ const getInstance = (id: string): VlcApi | undefined => {
   return instances.get(id);
 };
 
-function destroyInstances(ids: Iterable<string>): void {
+export function destroyInstances(ids: Iterable<string>): void {
   for (const id of ids) {
-    instances.get(id)?.destroy();
+    try {
+      instances.get(id)?.destroy();
+    } finally {
+      instances.delete(id);
+    }
   }
 }
 
@@ -74,6 +78,10 @@ export const ipc = (onCreated?: OnVlcCreated): void => {
 
   ipcMain.handle(VLC_IPC_CHANNEL.VLC_GET_STATE, (_event, instanceId?) => {
     return getInstance(instanceId ?? 'default')?.getState();
+  });
+
+  ipcMain.handle(VLC_IPC_CHANNEL.VLC_GET_METRICS, (_event, instanceId?) => {
+    return getInstance(instanceId ?? 'default')?.getMetrics();
   });
 
   ipcMain.handle(VLC_IPC_CHANNEL.VLC_PLAY, (_event, instanceId?) => {

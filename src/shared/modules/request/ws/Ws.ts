@@ -102,8 +102,10 @@ export class VWs {
       if (aborted) return;
       aborted = true;
       stopHeartbeat();
+      reconnectTimer && clearTimeout(reconnectTimer);
+      reconnectTimer = null;
       ws?.close();
-      canceler.removePending(conf);
+      canceler.deletePending(conf);
     };
 
     const { ignoreCancelToken } = conf.requestOptions;
@@ -135,14 +137,19 @@ export class VWs {
 
     let heartbeatTimer: NodeJS.Timeout | null = null;
     let pongTimer: NodeJS.Timeout | null = null;
+    let reconnectTimer: NodeJS.Timeout | null = null;
 
     const startHeartbeat = () => {
       if (!heartbeatCfg) return;
       stopHeartbeat();
       heartbeatTimer = setInterval(() => {
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        if (pongTimer) return;
         ws.send(heartbeatCfg.message as any);
-        pongTimer = setTimeout(() => ws.close(), heartbeatCfg.pongTimeout);
+        pongTimer = setTimeout(() => {
+          pongTimer = null;
+          ws.close();
+        }, heartbeatCfg.pongTimeout);
       }, heartbeatCfg.interval);
     };
 
@@ -177,16 +184,6 @@ export class VWs {
       return autoReconnectCfg?.delay ?? 1000;
     };
 
-    if (!conf.requestOptions?.ignoreCancelToken) {
-      this.canceler.addPending({
-        ...conf,
-        abort: () => {
-          stopHeartbeat();
-          ws?.close();
-        },
-      });
-    }
-
     const connect = (): Promise<T> => {
       return new Promise((resolve, reject) => {
         const socket = new WebSocket(conf.url);
@@ -202,6 +199,7 @@ export class VWs {
         socket.onmessage = (event: WebSocket.MessageEvent): void => {
           if (heartbeatCfg && event.data === heartbeatCfg.responseMessage) {
             pongTimer && clearTimeout(pongTimer);
+            pongTimer = null;
             return;
           }
 
@@ -242,17 +240,26 @@ export class VWs {
 
         socket.onclose = (event: WebSocket.CloseEvent): void => {
           stopHeartbeat();
-          canceler.removePending(conf);
           onDisconnected?.(socket, event);
 
-          if (!aborted && canReconnect()) {
+          const shouldReconnect = !aborted && canReconnect();
+          if (shouldReconnect) {
             reconnectCount++;
-            setTimeout(async () => {
-              ws = (await connect()) as WebSocket;
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
+              if (aborted) return;
+              void connect()
+                .then((socket) => {
+                  ws = socket as WebSocket;
+                })
+                .catch(() => {});
             }, getReconnectDelay());
+            return;
           }
 
-          if (!event.wasClean && !canReconnect()) {
+          canceler.deletePending(conf);
+
+          if (!event.wasClean) {
             if (requestCatchHook && isFunction(requestCatchHook)) {
               requestCatchHook(event, opt);
             }

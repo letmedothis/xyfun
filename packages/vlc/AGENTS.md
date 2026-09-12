@@ -58,7 +58,9 @@ packages/vlc/
 ├── native/                      # Rust 原生代码
 │   ├── src/
 │   │   ├── platform/            # 平台特定实现
+│   │   │   ├── linux.rs         # Linux (XWindow)
 │   │   │   ├── macos.rs         # macOS (NSView)
+│   │   │   ├── windows.rs       # Windows (HWND)
 │   │   │   └── mod.rs
 │   │   ├── api.rs               # libVLC FFI 封装
 │   │   ├── event.rs             # 事件处理
@@ -93,9 +95,10 @@ packages/vlc/
 
 ### 平台特定实现
 
-- **macOS**: 使用 `NSView` 进行视频渲染 (`platform/macos.rs`)
-- **Windows**: 待实现 (`HWND`)
-- **Linux**: 待实现 (`XWindow`)
+- **macOS**: 使用 `NSView` 作为 libVLC 视频输出窗口 (`platform/macos.rs`)
+- **Windows**: 使用 `HWND` 作为 libVLC 视频输出窗口 (`platform/windows.rs`)
+- **Linux**: 使用 X11/XWayland 的 `XWindow` 作为 libVLC 视频输出窗口 (`platform/linux.rs`)
+- 三个平台都会校验窗口句柄的字节长度和非零值；Linux 还会校验句柄是否在 libVLC 的 `uint32` 范围内
 
 ## 开发命令
 
@@ -152,8 +155,8 @@ npm run dev           # 启动 Electron 示例应用
 
 1. **VLC 库依赖**: 需要系统中安装 VLC 应用程序（包含 `libvlc` 动态库）
 2. **动态库路径**: macOS 默认 `/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib`
-3. **平台限制**: 当前仅实现 macOS，Windows/Linux 需补充 `platform/` 实现
-4. **窗口句柄**: macOS 需传递 `NSView` 指针（通过 `BigInt` 类型）
+3. **平台支持**: 原生窗口输出支持 macOS、Windows 和 Linux；Linux 需要 X11 或 XWayland
+4. **窗口句柄**: `attach()` 通过 `BigInt` 传递平台原生句柄，分别对应 macOS `NSView`、Windows `HWND` 和 Linux `XWindow`；句柄必须非零且符合当前平台宽度
 5. **双入口导出**: 包导出 `./control`（主进程）和 `./renderer`（渲染进程）两个入口
 
 ## 构建输出

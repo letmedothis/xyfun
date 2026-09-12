@@ -3,6 +3,7 @@ export enum VLC_IPC_CHANNEL {
   VLC_SET_FRAME_FORMAT = 'vlc:setFrameFormat',
   VLC_GET_FRAME_RGBA = 'vlc:getFrameRGBA',
   VLC_GET_STATE = 'vlc:getState',
+  VLC_GET_METRICS = 'vlc:getMetrics',
   VLC_CREATE = 'vlc:create',
   VLC_PLAY = 'vlc:play',
   VLC_PAUSE = 'vlc:pause',

@@ -3,6 +3,7 @@ import type {
   IVlcEventPayload,
   IVlcInitOptions,
   IVlcInitPath,
+  IVlcMetrics,
   IVlcPlayerState,
   IVlcTrack,
 } from '../types';
@@ -29,6 +30,18 @@ export class VlcApi implements IVlcApiContract {
 
   getState(): IVlcPlayerState {
     return native.getState(this.instanceId);
+  }
+
+  getMetrics(): IVlcMetrics {
+    return {
+      volume: this.getVolume(),
+      muted: this.getMuted(),
+      progress: this.getProgress(),
+      duration: this.getDuration(),
+      played: this.getPlayed(),
+      buffered: this.getBuffered(),
+      playbackRate: this.getPlaybackRate(),
+    };
   }
 
   getEnded(): boolean {

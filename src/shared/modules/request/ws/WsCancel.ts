@@ -32,9 +32,16 @@ export class WsCanceler {
    */
   removeAllPending() {
     pendingMap.forEach((cancel) => {
-      if (cancel && isFunction(cancel)) cancel.abort();
+      if (cancel && isFunction(cancel.abort)) cancel.abort();
     });
     pendingMap.clear();
+  }
+
+  /**
+   * Remove a request from the pending list without aborting it.
+   */
+  deletePending(config: Record<string, any>) {
+    pendingMap.delete(getPendingUrl(config));
   }
 
   /**

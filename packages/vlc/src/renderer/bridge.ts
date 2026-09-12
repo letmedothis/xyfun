@@ -1,5 +1,5 @@
 import { VLC_IPC_CHANNEL } from '../constants/ipc';
-import type { IVlcEventPayload, IVlcInitOptions, IVlcInitPath } from '../types';
+import type { IVlcEventPayload, IVlcInitOptions, IVlcInitPath, IVlcMetrics } from '../types';
 
 export interface IVlcBridge {
   create: (mountSelector: string) => void | Promise<void>;
@@ -35,6 +35,8 @@ export function createBridge(path: IVlcInitPath, options: IVlcInitOptions, insta
   let frameRequestInFlight = false;
   let created = false;
   let instance_id: string | null = instanceId ?? null;
+  let lifecycleVersion = 0;
+  let metricsRequestInFlight = false;
   let metricsTimer: ReturnType<typeof setInterval> | null = null;
   const metrics = {
     volume: defaultVolume,
@@ -67,30 +69,37 @@ export function createBridge(path: IVlcInitPath, options: IVlcInitOptions, insta
     return null;
   }
 
-  function updateNumberMetric(key: keyof typeof metrics, promise: Promise<unknown>, allowNaN = false): void {
-    void promise
-      .then((value) => {
-        const numberValue = toMetricNumber(value, allowNaN);
-        if (numberValue !== null) (metrics as Record<string, unknown>)[key] = numberValue;
-      })
-      .catch(() => {});
+  function updateMetrics(value: unknown): void {
+    if (!value || typeof value !== 'object') return;
+
+    const next = value as Partial<IVlcMetrics>;
+    const numberKeys = ['volume', 'progress', 'duration', 'played', 'buffered', 'playbackRate'] as const;
+    for (const key of numberKeys) {
+      const numberValue = toMetricNumber(next[key], true);
+      if (numberValue !== null) metrics[key] = numberValue;
+    }
+    if (typeof next.muted === 'boolean') metrics.muted = next.muted;
+  }
+
+  async function pollMetrics(): Promise<void> {
+    if (!created || metricsRequestInFlight) return;
+
+    metricsRequestInFlight = true;
+    const pollVersion = lifecycleVersion;
+    try {
+      const value = await invoke(VLC_IPC_CHANNEL.VLC_GET_METRICS, instance_id);
+      if (created && pollVersion === lifecycleVersion) updateMetrics(value);
+    } catch {
+      // Event updates keep the last known metrics while native polling is unavailable.
+    } finally {
+      metricsRequestInFlight = false;
+    }
   }
 
   function startMetricsPolling(): void {
     if (metricsTimer) return;
     metricsTimer = setInterval(() => {
-      if (!created) return;
-      updateNumberMetric('volume', invoke(VLC_IPC_CHANNEL.VLC_GET_VOLUME, instance_id), true);
-      updateNumberMetric('progress', invoke(VLC_IPC_CHANNEL.VLC_GET_PROGRESS, instance_id), true);
-      updateNumberMetric('duration', invoke(VLC_IPC_CHANNEL.VLC_GET_DURATION, instance_id), true);
-      updateNumberMetric('played', invoke(VLC_IPC_CHANNEL.VLC_GET_PLAYED, instance_id), true);
-      updateNumberMetric('buffered', invoke(VLC_IPC_CHANNEL.VLC_GET_BUFFERED, instance_id), true);
-      updateNumberMetric('playbackRate', invoke(VLC_IPC_CHANNEL.VLC_GET_PLAYBACK_RATE, instance_id), true);
-      void invoke(VLC_IPC_CHANNEL.VLC_GET_MUTED, instance_id)
-        .then((value) => {
-          if (typeof value === 'boolean') metrics.muted = value;
-        })
-        .catch(() => {});
+      void pollMetrics();
     }, 250);
   }
 
@@ -139,6 +148,7 @@ export function createBridge(path: IVlcInitPath, options: IVlcInitOptions, insta
       ).then((id) => {
         instance_id = id as string;
         created = true;
+        lifecycleVersion++;
         startMetricsPolling();
       });
     },
@@ -230,6 +240,7 @@ export function createBridge(path: IVlcInitPath, options: IVlcInitOptions, insta
         metricsTimer = null;
       }
       created = false;
+      lifecycleVersion++;
       frameRequestInFlight = false;
       lastFrame = new Uint8Array(0);
       return invoke(VLC_IPC_CHANNEL.VLC_DESTROY, instance_id).then(() => {

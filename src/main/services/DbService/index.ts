@@ -30,6 +30,7 @@ export class DbService {
   private client: IClient | null = null;
   private orm: IOrm | null = null;
   private watcher: FSWatcher | null = null;
+  private watcherDirty = false;
   private watcherSyncing = false;
   private subscribers: Map<string, Array<(newValue: any) => void>> = new Map();
 
@@ -148,10 +149,20 @@ export class DbService {
 
     this.watcher.on('error', (error) => logger.error('Database watcher error:', error as Error));
 
-    this.watcher.on('change', async () => {
-      if (this.watcherSyncing) return;
-      this.watcherSyncing = true;
-      try {
+    this.watcher.on('change', () => {
+      void this.syncWatcherChanges();
+    });
+  }
+
+  private async syncWatcherChanges(): Promise<void> {
+    this.watcherDirty = true;
+    if (this.watcherSyncing) return;
+
+    this.watcherSyncing = true;
+    try {
+      do {
+        this.watcherDirty = false;
+
         try {
           const cloudConf = await this.setting.getValue('cloud');
           const { sync = false, type, ...options } = cloudConf || {};
@@ -168,10 +179,10 @@ export class DbService {
         } catch (error) {
           logger.error('Failed to local sync:', error as Error);
         }
-      } finally {
-        this.watcherSyncing = false;
-      }
-    });
+      } while (this.watcherDirty);
+    } finally {
+      this.watcherSyncing = false;
+    }
   }
 
   private async stopWatcher(): Promise<void> {
@@ -179,6 +190,7 @@ export class DbService {
       await this.watcher.close();
     }
     this.watcher = null;
+    this.watcherDirty = false;
   }
 
   /**

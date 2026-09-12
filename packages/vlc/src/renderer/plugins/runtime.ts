@@ -812,6 +812,7 @@ function createVlcRuntime(path: IVlcInitPath, options: IVlcInitOptions): IVlcRun
 
   Object.defineProperty(player, 'destroy', {
     value: () => {
+      player.emit('destroy');
       canvasRenderer.destroy();
       stopUiHideTimer();
       player.pip = false;

@@ -117,6 +117,22 @@ interface IVlcInitOptions {
 }
 ```
 
+### IVlcMetrics
+
+批量读取播放器运行指标：
+
+```typescript
+interface IVlcMetrics {
+  volume: number;
+  muted: boolean;
+  progress: number;
+  duration: number;
+  played: number;
+  buffered: number;
+  playbackRate: number;
+}
+```
+
 ### IVlcI18n
 
 国际化文案键值对（所有键均为可选）：
@@ -189,38 +205,49 @@ class VlcApi implements IVlcApiContract {
 
 #### 方法列表
 
-| 方法               | 参数                                                               | 返回值            | 说明                                |
-| ------------------ | ------------------------------------------------------------------ | ----------------- | ----------------------------------- |
-| `create`           | `path: IVlcInitPath, options: IVlcInitOptions`                     | `string`          | 初始化 libVLC，返回实例 ID          |
-| `play`             | 无                                                                 | `void`            | 开始播放                            |
-| `pause`            | 无                                                                 | `void`            | 暂停播放                            |
-| `toggle`           | 无                                                                 | `void`            | 切换播放/暂停                       |
-| `stop`             | 无                                                                 | `void`            | 停止播放并释放资源                  |
-| `attach`           | `handle: bigint`                                                   | `void`            | 设置原生窗口句柄（macOS NSView 等） |
-| `setFrameFormat`   | `width: number, height: number`                                    | `void`            | 设置帧渲染尺寸                      |
-| `getFrameRgba`     | 无                                                                 | `Uint8Array`      | 获取当前帧 RGBA 数据                |
-| `getState`         | 无                                                                 | `IVlcPlayerState` | 获取播放器状态                      |
-| `getPlaying`       | 无                                                                 | `boolean`         | 是否正在播放                        |
-| `getEnded`         | 无                                                                 | `boolean`         | 是否播放结束                        |
-| `setVolume`        | `volume: number`                                                   | `void`            | 设置音量（0~1）                     |
-| `getVolume`        | 无                                                                 | `number`          | 获取音量                            |
-| `setMuted`         | `muted: boolean`                                                   | `void`            | 设置静音                            |
-| `getMuted`         | 无                                                                 | `boolean`         | 获取静音状态                        |
-| `seek`             | `time: number`                                                     | `void`            | 跳转到指定时间（毫秒）              |
-| `setProgress`      | `progress: number`                                                 | `void`            | 设置播放进度（0~1）                 |
-| `getProgress`      | 无                                                                 | `number`          | 获取播放进度（0~1）                 |
-| `getDuration`      | 无                                                                 | `number`          | 获取总时长（毫秒）                  |
-| `getPlayed`        | 无                                                                 | `number`          | 获取已播放时长（毫秒）              |
-| `getBuffered`      | 无                                                                 | `number`          | 获取缓冲进度                        |
-| `setPlaybackRate`  | `rate: number`                                                     | `void`            | 设置播放速率                        |
-| `getPlaybackRate`  | 无                                                                 | `number`          | 获取播放速率                        |
-| `getSubtitleTrack` | 无                                                                 | `IVlcTrack[]`     | 获取字幕轨道列表                    |
-| `setSubtitleTrack` | `id: number`                                                       | `void`            | 激活指定字幕轨道                    |
-| `addSubtitleFile`  | `subtitlePath: string`                                             | `void`            | 添加外部字幕文件                    |
-| `getAudioTrack`    | 无                                                                 | `IVlcTrack[]`     | 获取音频轨道列表                    |
-| `setAudioTrack`    | `id: number`                                                       | `void`            | 激活指定音频轨道                    |
-| `onEvent`          | `eventName: string, callback: (payload: IVlcEventPayload) => void` | `void`            | 注册事件回调                        |
-| `destroy`          | 无                                                                 | `void`            | 销毁播放器释放资源                  |
+| 方法               | 参数                                                               | 返回值            | 说明                       |
+| ------------------ | ------------------------------------------------------------------ | ----------------- | -------------------------- |
+| `create`           | `path: IVlcInitPath, options: IVlcInitOptions`                     | `string`          | 初始化 libVLC，返回实例 ID |
+| `play`             | 无                                                                 | `void`            | 开始播放                   |
+| `pause`            | 无                                                                 | `void`            | 暂停播放                   |
+| `toggle`           | 无                                                                 | `void`            | 切换播放/暂停              |
+| `stop`             | 无                                                                 | `void`            | 停止播放并释放资源         |
+| `attach`           | `handle: bigint`                                                   | `void`            | 设置原生窗口句柄           |
+| `setFrameFormat`   | `width: number, height: number`                                    | `void`            | 设置帧渲染尺寸             |
+| `getFrameRgba`     | 无                                                                 | `Uint8Array`      | 获取当前帧 RGBA 数据       |
+| `getState`         | 无                                                                 | `IVlcPlayerState` | 获取播放器状态             |
+| `getMetrics`       | 无                                                                 | `IVlcMetrics`     | 批量获取播放器运行指标     |
+| `getPlaying`       | 无                                                                 | `boolean`         | 是否正在播放               |
+| `getEnded`         | 无                                                                 | `boolean`         | 是否播放结束               |
+| `setVolume`        | `volume: number`                                                   | `void`            | 设置音量（0~1）            |
+| `getVolume`        | 无                                                                 | `number`          | 获取音量                   |
+| `setMuted`         | `muted: boolean`                                                   | `void`            | 设置静音                   |
+| `getMuted`         | 无                                                                 | `boolean`         | 获取静音状态               |
+| `seek`             | `time: number`                                                     | `void`            | 跳转到指定时间（毫秒）     |
+| `setProgress`      | `progress: number`                                                 | `void`            | 设置播放进度（0~1）        |
+| `getProgress`      | 无                                                                 | `number`          | 获取播放进度（0~1）        |
+| `getDuration`      | 无                                                                 | `number`          | 获取总时长（毫秒）         |
+| `getPlayed`        | 无                                                                 | `number`          | 获取已播放时长（毫秒）     |
+| `getBuffered`      | 无                                                                 | `number`          | 获取缓冲进度               |
+| `setPlaybackRate`  | `rate: number`                                                     | `void`            | 设置播放速率               |
+| `getPlaybackRate`  | 无                                                                 | `number`          | 获取播放速率               |
+| `getSubtitleTrack` | 无                                                                 | `IVlcTrack[]`     | 获取字幕轨道列表           |
+| `setSubtitleTrack` | `id: number`                                                       | `void`            | 激活指定字幕轨道           |
+| `addSubtitleFile`  | `subtitlePath: string`                                             | `void`            | 添加外部字幕文件           |
+| `getAudioTrack`    | 无                                                                 | `IVlcTrack[]`     | 获取音频轨道列表           |
+| `setAudioTrack`    | `id: number`                                                       | `void`            | 激活指定音频轨道           |
+| `onEvent`          | `eventName: string, callback: (payload: IVlcEventPayload) => void` | `void`            | 注册事件回调               |
+| `destroy`          | 无                                                                 | `void`            | 销毁播放器释放资源         |
+
+#### 原生窗口句柄
+
+`attach(handle)` 根据运行平台将句柄绑定到 libVLC：
+
+- macOS：`NSView` 指针
+- Windows：`HWND`
+- Linux：X11/XWayland 的 `XWindow`
+
+句柄必须是当前平台指针宽度对应的非零值。原生层会拒绝字节长度不正确或为零的句柄；Linux 还会拒绝超出 libVLC `uint32` 范围的值。如果当前 libVLC 未提供对应平台的窗口设置接口，调用也会失败。
 
 #### 使用示例
 

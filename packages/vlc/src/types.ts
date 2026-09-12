@@ -27,6 +27,16 @@ export interface IVlcInitPath {
   pluginPath?: string;
 }
 
+export interface IVlcMetrics {
+  volume: number;
+  muted: boolean;
+  progress: number;
+  duration: number;
+  played: number;
+  buffered: number;
+  playbackRate: number;
+}
+
 export type IVlcLocale = 'zh-CN' | 'zh-TW' | 'en-US';
 
 export interface IVlcInitOptions {
@@ -54,6 +64,7 @@ export interface IVlcApiContract {
   setFrameFormat: (width: number, height: number) => void;
   getFrameRgba: () => Uint8Array;
   getState: () => IVlcPlayerState;
+  getMetrics: () => IVlcMetrics;
   getEnded: () => boolean;
   getPlaying: () => boolean;
   create: (path: IVlcInitPath, options: IVlcInitOptions) => string;

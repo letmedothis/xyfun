@@ -8,21 +8,24 @@ export default function fullscreenMix(vlc: any) {
   } = vlc;
 
   let cssText = '';
+  let fullscreenPending = false;
 
-  function requestBrowserFullscreen(): void {
+  async function requestBrowserFullscreen(): Promise<void> {
     const el = $player as HTMLElement;
     if (el.requestFullscreen) {
-      el.requestFullscreen();
+      await el.requestFullscreen();
     } else if ((el as any).webkitRequestFullscreen) {
-      (el as any).webkitRequestFullscreen();
+      await (el as any).webkitRequestFullscreen();
+    } else {
+      throw new Error('Fullscreen API is unavailable');
     }
   }
 
-  function exitBrowserFullscreen(): void {
+  async function exitBrowserFullscreen(): Promise<void> {
     if (document.exitFullscreen) {
-      document.exitFullscreen();
+      await document.exitFullscreen();
     } else if ((document as any).webkitExitFullscreen) {
-      (document as any).webkitExitFullscreen();
+      await (document as any).webkitExitFullscreen();
     }
   }
 
@@ -36,20 +39,45 @@ export default function fullscreenMix(vlc: any) {
       return isBrowserFullscreen() || hasClass($player, 'vlc-fullscreen-web');
     },
     set(value) {
+      if (fullscreenPending) return;
+
       if (value) {
         cssText = $player.style.cssText;
         if (constructor.FULLSCREEN_WEB_IN_BODY) {
           append(document.body, $player);
         }
-        vlc.state = 'fullscreenWeb';
-        setStyle($player, 'width', '100%');
-        setStyle($player, 'height', '100%');
-        addClass($player, 'vlc-fullscreen-web');
-        requestBrowserFullscreen();
-        vlc.emit('fullscreenWeb', true);
+        fullscreenPending = true;
+        void requestBrowserFullscreen()
+          .then(() => {
+            vlc.state = 'fullscreenWeb';
+            setStyle($player, 'width', '100%');
+            setStyle($player, 'height', '100%');
+            addClass($player, 'vlc-fullscreen-web');
+            vlc.emit('fullscreenWeb', true);
+            vlc.emit('resize');
+          })
+          .catch((error) => {
+            if (constructor.FULLSCREEN_WEB_IN_BODY) append($container, $player);
+            cssText = '';
+            vlc.notice.show = 'Fullscreen failed';
+            vlc.emit('fullscreenError', error);
+          })
+          .finally(() => {
+            fullscreenPending = false;
+          });
       } else {
         if (isBrowserFullscreen()) {
-          exitBrowserFullscreen();
+          fullscreenPending = true;
+          void exitBrowserFullscreen()
+            .then(() => onFullscreenChange())
+            .catch((error) => {
+              vlc.notice.show = 'Exit fullscreen failed';
+              vlc.emit('fullscreenError', error);
+            })
+            .finally(() => {
+              fullscreenPending = false;
+            });
+          return;
         }
         if (constructor.FULLSCREEN_WEB_IN_BODY) {
           append($container, $player);
@@ -60,9 +88,8 @@ export default function fullscreenMix(vlc: any) {
         }
         removeClass($player, 'vlc-fullscreen-web');
         vlc.emit('fullscreen', false);
+        vlc.emit('resize');
       }
-
-      vlc.emit('resize');
     },
   });
 
@@ -77,6 +104,7 @@ export default function fullscreenMix(vlc: any) {
         cssText = '';
       }
       removeClass($player, 'vlc-fullscreen-web');
+      vlc.state = 'idle';
       vlc.emit('fullscreen', false);
       vlc.emit('resize');
     }
@@ -84,4 +112,8 @@ export default function fullscreenMix(vlc: any) {
 
   $player.addEventListener('fullscreenchange', onFullscreenChange);
   $player.addEventListener('webkitfullscreenchange', onFullscreenChange);
+  vlc.on('destroy', () => {
+    $player.removeEventListener('fullscreenchange', onFullscreenChange);
+    $player.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+  });
 }
