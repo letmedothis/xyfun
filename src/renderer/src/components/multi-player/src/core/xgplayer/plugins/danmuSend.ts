@@ -28,7 +28,32 @@ I18N.extend(LANG as Array<IXGI18nText>);
 
 const { POSITIONS } = Plugin;
 
-export default class danmuSendPlugin extends Plugin {
+interface DanmuPlugin {
+  danmujs?: unknown;
+  sendComment: (comment: DanmuRenderComment) => void;
+}
+
+interface DanmuComment {
+  txt: string;
+  start: number;
+  mode: 'scroll';
+  style: {
+    color: string;
+    fontSize: string;
+  };
+}
+
+interface DanmuRenderComment extends DanmuComment {
+  duration: number;
+  id: string;
+  prior: boolean;
+}
+
+type SendFailureReason = 'danmu-unavailable' | 'empty' | 'invalid-time' | 'too-long' | 'send-failed';
+
+export default class DanmuSendPlugin extends Plugin {
+  private danmuPlugin: DanmuPlugin | null = null;
+
   // 插件的名称，将作为插件实例的唯一key值
   static get pluginName() {
     return 'danmuSend';
@@ -44,65 +69,108 @@ export default class danmuSendPlugin extends Plugin {
       height: undefined,
       docPiPNode: undefined,
       docPiPStyle: undefined,
+      maxLength: 200,
     };
   }
 
-  constructor(args) {
+  constructor(args: any) {
     super(args);
   }
 
-  beforePlayerInit() {
-    // TODO 播放器调用start初始化播放源之前的逻辑
+  onPluginsReady() {
+    this.danmuPlugin = (this.player.getPlugin('danmu') || this.player.plugins.danmu || null) as DanmuPlugin | null;
+    this.setControlsEnabled(!!this.danmuPlugin?.danmujs);
   }
 
-  afterPlayerInit() {
-    // TODO 播放器调用start初始化播放源之后的逻辑
+  private emitFailure(reason: SendFailureReason, text: string) {
+    this.emit('DANMAKU_SEND_ERROR', { reason, text });
   }
 
-  sendBtnClick() {
-    const danmuPlugin = this.player.getPlugin('danmu') || this.player.plugins.danmu;
-    if (!danmuPlugin) return;
+  private setControlsEnabled(enabled: boolean) {
+    const input = this.find('.danmu-input') as HTMLInputElement | null;
+    const button = this.find('.danmu-send') as HTMLElement | null;
 
-    const input = this.find('.danmu-input');
-    const inputValue = (input as HTMLInputElement).value;
-    if (!inputValue) return;
+    if (input) input.disabled = !enabled;
+    if (button) {
+      button.setAttribute('aria-disabled', String(!enabled));
+      button.style.cursor = enabled ? 'pointer' : 'not-allowed';
+      button.style.opacity = enabled ? '1' : '0.5';
+    }
+  }
 
-    const doc = {
+  sendBtnClick = () => {
+    const input = this.find('.danmu-input') as HTMLInputElement | null;
+    if (!input) return;
+
+    const inputValue = input.value.trim();
+    if (!inputValue) {
+      this.emitFailure('empty', inputValue);
+      return;
+    }
+
+    const maxLength = Number(this.config.maxLength) || 200;
+    if (inputValue.length > maxLength) {
+      this.emitFailure('too-long', inputValue);
+      return;
+    }
+
+    if (!this.danmuPlugin?.danmujs || typeof this.danmuPlugin.sendComment !== 'function') {
+      this.emitFailure('danmu-unavailable', inputValue);
+      return;
+    }
+
+    const currentTime = this.player.currentTime;
+    if (!Number.isFinite(currentTime) || currentTime < 0) {
+      this.emitFailure('invalid-time', inputValue);
+      return;
+    }
+
+    const doc: DanmuComment = {
       txt: inputValue,
-      start: this.player.currentTime,
-      mode: 'scroll', // 默认滚动弹幕
+      start: currentTime,
+      mode: 'scroll',
       style: {
         color: '#FFFFFF',
         fontSize: '24px',
       },
     };
 
-    danmuPlugin.sendComment({
-      ...doc,
-      start: (doc.start + 0.3) * 1000, // 弹幕发送时间稍微延后一点
-      duration: 5000,
-      id: Date.now().toString(),
-      prior: true,
-    });
+    try {
+      this.danmuPlugin.sendComment({
+        ...doc,
+        start: (doc.start + 0.3) * 1000,
+        duration: 5000,
+        id: Date.now().toString(),
+        prior: true,
+      });
+    } catch {
+      this.emitFailure('send-failed', inputValue);
+      return;
+    }
 
     this.emit('DANMAKU_SEND', doc);
+    input.value = '';
+  };
 
-    (input as HTMLInputElement).value = ''; // 清空输入框
-  }
+  inputKeydown = (event: KeyboardEvent) => {
+    if (event.key !== 'Enter' || event.isComposing) return;
+    event.preventDefault();
+    this.sendBtnClick();
+  };
 
   afterCreate() {
     /**
      * 自定义插件 弹幕发送模块
      * root.__root__为根节点Vue模板data值
      */
-    // 对当前插件根节点内部类名为.danmu-send的元素绑定click事件
     this.bind('.danmu-send', 'click', this.sendBtnClick);
-    // TODO 插件实例化之后的一些逻辑
+    this.bind('.danmu-input', 'keydown', this.inputKeydown);
   }
 
   destroy() {
-    this.unbind('.danmu-send', 'click', this.sendBtnClick);
-    // 播放器销毁的时候一些逻辑
+    this.unbind('.danmu-send', 'click');
+    this.unbind('.danmu-input', 'keydown');
+    this.danmuPlugin = null;
   }
 
   render() {
@@ -138,6 +206,7 @@ export default class danmuSendPlugin extends Plugin {
           height: 100%;
           line-height: 1;
         "
+        maxlength="${Number(this.config.maxLength) || 200}"
         placeholder="${(this.i18n as any).danmuPlaceholder}"
       />
       `;

@@ -20,7 +20,7 @@
 | ------------------------------ | --------------------------------------- | ------ | --------------------------------------------------------------------------------- |
 | VLC Windows/Linux 视频窗口适配 | 代码已实现，待跨平台实机验收            | P0     | `packages/vlc/native/src/platform/`                                               |
 | t3Drpy 验证码与首页筛选        | 底层能力标记为未实现                    | P1     | `src/main/services/FastifyService/routes/v1/film/cms/adapter/t3Drpy/`             |
-| 弹幕发送插件生命周期           | 多个生命周期钩子为空                    | P1     | `src/renderer/src/components/multi-player/src/core/xgplayer/plugins/danmuSend.ts` |
+| 弹幕发送插件生命周期           | 已完成                                  | P1     | `src/renderer/src/components/multi-player/src/core/xgplayer/plugins/danmuSend.ts` |
 | 播放器已知兼容性问题           | README 已记录，缺少统一处理策略         | P1     | `src/renderer/src/components/multi-player/README.md`                              |
 | worker 日志转发                | TODO，worker 日志可能无法进入主进程日志 | P1     | `src/renderer/src/utils/logger.ts`                                                |
 | Electron 构建 warning          | 配置中明确暂时忽略                      | P2     | `electron.vite.config.ts`                                                         |
@@ -85,16 +85,15 @@ t3Drpy 内置脚本中标记“验证码识别”和“首页分类解析/筛选
 
 #### 现状
 
-`danmuSendPlugin` 已实现输入、发送按钮和 `DANMAKU_SEND` 事件，但 `beforePlayerInit`、`afterPlayerInit`、`afterCreate` 和 `destroy` 中仍有待补充逻辑。当前发送逻辑直接依赖 danmu 插件实例和当前播放时间。
+`DanmuSendPlugin` 已加入非音频播放器插件列表，并在 `onPluginsReady` 后获取 danmu 实例。点击与 Enter 发送使用稳定的实例回调，销毁时解除事件并清空引用；发送前会校验空白、最大长度、播放时间和 danmu 可用性，失败时保留输入并发出 `DANMAKU_SEND_ERROR`。
 
 #### 设计
 
-1. `beforePlayerInit`：清理上一次实例状态，校验配置，记录是否存在 danmu 能力。
-2. `afterPlayerInit`：获取 danmu 插件并绑定就绪/错误状态；无 danmu 插件时禁用发送控件。
-3. `afterCreate`：集中绑定按钮和输入框事件，支持 Enter 发送，避免重复绑定。
-4. `sendBtnClick`：统一校验空白文本、最大长度、当前播放状态和 danmu 插件可用性；发送失败时保留输入内容并发出失败事件。
-5. `destroy`：解除事件、清空引用和状态，确保播放器重建后不会重复触发。
-6. 发送事件保留原始弹幕数据与实际延迟后的时间，便于调用方记录和调试。
+1. 已在 `onPluginsReady` 获取 danmu 插件；无可用 danmu 渲染实例时禁用发送控件。
+2. 已在 `afterCreate` 集中绑定按钮和输入框事件，支持 Enter 发送。
+3. `sendBtnClick` 已统一校验空白文本、最大长度、当前播放时间和 danmu 插件可用性；发送失败时保留输入内容并发出失败事件。
+4. `destroy` 已解除事件、清空引用和状态，避免播放器重建后重复触发。
+5. 发送事件保留原始弹幕数据；传给渲染插件的弹幕使用延迟后的毫秒时间。
 
 #### 验收标准
 

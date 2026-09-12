@@ -210,7 +210,7 @@ class XgPlayerAdapter {
     } else {
       options.plugins = [
         ...options.plugins!,
-        ...(type !== 'audio' ? [Danmu, danmuSettingsPlugin] : []),
+        ...(type !== 'audio' ? [Danmu, _danmuSendPlugin, danmuSettingsPlugin] : []),
         ...(rawOptions.next ? [playNextPlugin] : []),
       ];
       player = new XgPlayer(merge(this.options, options));
