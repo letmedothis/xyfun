@@ -255,9 +255,11 @@ export class CdpElectron {
 
       // Execute custom scripts
       if (isString(initScript) && !isStrEmpty(initScript)) {
+        logger.warn(`Executing custom initScript in Puppeteer page (length=${initScript.length})`);
         await this.execScript(page, initScript, 'evaluateOnNewDocument');
       }
       if (isString(runScript) && !isStrEmpty(runScript)) {
+        logger.warn(`Executing custom runScript in Puppeteer page (length=${runScript.length})`);
         const code = `
           (() => {
             var scriptTimer;

@@ -252,7 +252,7 @@ import {
 } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { PropType } from 'vue';
-import { computed, onMounted, ref, toRaw, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, toRaw, watch } from 'vue';
 
 import {
   fetchCmsDetail,
@@ -456,7 +456,14 @@ watch(
   },
 );
 
-onMounted(() => setup());
+onMounted(() => {
+  setup();
+  emitter.on(emitterChannel.COMP_MULTI_PLAYER_PLAYNEXT, handlePlayNext);
+});
+
+onUnmounted(() => {
+  emitter.off(emitterChannel.COMP_MULTI_PLAYER_PLAYNEXT, handlePlayNext);
+});
 
 const defaultPreloadConfig = () => {
   preload.value = {
@@ -1004,12 +1011,12 @@ const setup = async () => {
   fetchRecommend();
 };
 
-emitter.on(emitterChannel.COMP_MULTI_PLAYER_PLAYNEXT, async () => {
+const handlePlayNext = async () => {
   const state = getEpisodePlayState();
   if (!isBoolean(state?.isLast) || isNil(state?.nextIndex) || state?.nextIndex === -1) return;
 
   const nextInfo = state.nextInfo;
   await handleSwitchSeason(nextInfo);
-});
+};
 </script>
 <style lang="less" scoped></style>

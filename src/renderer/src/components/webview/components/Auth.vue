@@ -56,7 +56,7 @@ import { IPC_CHANNEL } from '@shared/config/ipcChannel';
 import type { IAuthCert, IAuthSendPayload } from '@shared/types/auth';
 import type { FormInstanceFunctions, SubmitContext } from 'tdesign-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { onMounted, ref, toRaw, useTemplateRef } from 'vue';
+import { onMounted, onUnmounted, ref, toRaw, useTemplateRef } from 'vue';
 
 import { t } from '@/locales';
 
@@ -75,6 +75,9 @@ const formData = ref<IAuthCert>({
 const authPayload = ref<IAuthSendPayload | null>(null);
 
 onMounted(() => setup());
+onUnmounted(() => {
+  window.electron.ipcRenderer.removeAllListeners(IPC_CHANNEL.LOGIN_BASIC);
+});
 
 const setup = async () => {
   loginBasic();

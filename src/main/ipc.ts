@@ -16,9 +16,27 @@ import { proxyManager } from '@main/services/ProxyManager';
 import { shortcutService } from '@main/services/ShortcutService';
 import { trayService } from '@main/services/TrayService';
 import { windowService } from '@main/services/WindowService';
-import { createDir, fileDelete, pathExist, readDirFaster, readFile, saveFile } from '@main/utils/file';
+import {
+  createDir,
+  fileDelete,
+  pathExist,
+  readDirFaster,
+  readFile,
+  resolveWithinPath,
+  saveFile,
+} from '@main/utils/file';
 import type { IHomePath, ISystemPath, IUserPath } from '@main/utils/path';
-import { getHomePath, getSystemPath, getUserPath } from '@main/utils/path';
+import {
+  APP_DATABASE_PATH,
+  APP_FILE_PATH,
+  APP_LOG_PATH,
+  APP_PLUGIN_PATH,
+  APP_STORE_PATH,
+  APP_TEMP_PATH,
+  getHomePath,
+  getSystemPath,
+  getUserPath,
+} from '@main/utils/path';
 import { execAsync } from '@main/utils/shell';
 import { arch, generateUserAgent, isLinux, isMacOS, isPortable, isWindows, platform } from '@main/utils/systemInfo';
 import { IPC_CHANNEL } from '@shared/config/ipcChannel';
@@ -58,6 +76,19 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
     }
 
     return false;
+  };
+
+  const ALLOWED_FS_PATHS = [
+    APP_STORE_PATH,
+    APP_FILE_PATH,
+    APP_DATABASE_PATH,
+    APP_PLUGIN_PATH,
+    APP_TEMP_PATH,
+    APP_LOG_PATH,
+  ];
+
+  const isPathAllowed = (filePath: string): boolean => {
+    return ALLOWED_FS_PATHS.some((allowed) => resolveWithinPath(allowed, filePath) !== null);
   };
 
   const getOwnedWebview = (event: Electron.IpcMainInvokeEvent, webviewId: number): Electron.WebContents | null => {
@@ -153,9 +184,47 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   });
 
   // business
+  const ALLOWED_PLAYER_NAMES = new Set([
+    'vlc',
+    'mpv',
+    'iina',
+    'potplayer',
+    'potplayermini',
+    'potplayermini64',
+    'smplayer',
+    'celluloid',
+    'haruna',
+    'kmp',
+    'kmplayer',
+    'mplayer',
+    'ffplay',
+    'mpc-hc',
+    'mpc-hc64',
+    'mpc-be',
+    'mpc-be64',
+    'daum',
+    'gom',
+    'nplayer',
+    'infuse',
+    'elmedia',
+    'quicktime player',
+    'windows media player',
+  ]);
+
+  const isAllowedPlayer = (appPath: string): boolean => {
+    const name = path.basename(appPath, path.extname(appPath)).toLowerCase();
+    return ALLOWED_PLAYER_NAMES.has(name);
+  };
+
   ipcMain.handle(IPC_CHANNEL.CALL_PLAYER, async (_, app: string, url: string) => {
     if (!url || !app) return false;
     if (!isHttp(url) && !(await pathExist(url))) return false;
+
+    const executable = app.trim().replace(/^(['"])(.*)\1$/, '$2');
+    if (!isAllowedPlayer(executable)) {
+      logger.warn(`Rejected CALL_PLAYER with untrusted executable: ${executable}`);
+      return false;
+    }
 
     try {
       if (windowService.getWindow(WINDOW_NAME.PLAYER)) {
@@ -225,16 +294,19 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   // fs
   ipcMain.handle(IPC_CHANNEL.FS_EXIST, async (event, path: string) => {
     if (!isTrustedSender(event)) return false;
+    if (!isPathAllowed(path)) return false;
     return await pathExist(path);
   });
 
   ipcMain.handle(IPC_CHANNEL.FS_DELETE, async (event, path: string) => {
     if (!isTrustedSender(event)) return false;
+    if (!isPathAllowed(path)) return false;
     return await fileDelete(path);
   });
 
   ipcMain.handle(IPC_CHANNEL.FS_FILE_READ, async (event, path: string, encoding: BufferEncoding = 'utf-8') => {
     if (!isTrustedSender(event)) return null;
+    if (!isPathAllowed(path)) return null;
     return await readFile(path, encoding);
   });
 
@@ -242,17 +314,20 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
     IPC_CHANNEL.FS_FILE_WRITE,
     async (event, path: string, data: string | Buffer, encoding: BufferEncoding = 'utf-8') => {
       if (!isTrustedSender(event)) return false;
+      if (!isPathAllowed(path)) return false;
       return await saveFile(path, data, encoding);
     },
   );
 
   ipcMain.handle(IPC_CHANNEL.FS_DIR_READ, async (event, path: string, depth: number = 0, exclude?, include?) => {
     if (!isTrustedSender(event)) return [];
+    if (!isPathAllowed(path)) return [];
     return await readDirFaster(path, depth, exclude, include);
   });
 
   ipcMain.handle(IPC_CHANNEL.FS_DIR_CREATE, async (event, path: string) => {
     if (!isTrustedSender(event)) return false;
+    if (!isPathAllowed(path)) return false;
     return await createDir(path);
   });
 
@@ -269,7 +344,9 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   );
 
   // open
-  ipcMain.handle(IPC_CHANNEL.OPEN_PATH, (_, path: string) => {
+  ipcMain.handle(IPC_CHANNEL.OPEN_PATH, (event, path: string) => {
+    if (!isTrustedSender(event)) return;
+    if (!isPathAllowed(path)) return;
     shell.openPath(path);
   });
 
@@ -508,21 +585,24 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
     },
   );
 
-  ipcMain.handle(IPC_CHANNEL.WINDOW_DESTROY, (_, name: string) => {
+  ipcMain.handle(IPC_CHANNEL.WINDOW_DESTROY, (event, name: string) => {
+    if (!isTrustedSender(event)) return;
     const window = windowService.getWindow(name);
     if (window && !window.isDestroyed()) {
       windowService.closeWindow(window);
     }
   });
 
-  ipcMain.handle(IPC_CHANNEL.WINDOW_HIDE, (_, name: string) => {
+  ipcMain.handle(IPC_CHANNEL.WINDOW_HIDE, (event, name: string) => {
+    if (!isTrustedSender(event)) return;
     const window = windowService.getWindow(name);
     if (window && !window.isDestroyed()) {
       windowService.hideWindow(window);
     }
   });
 
-  ipcMain.handle(IPC_CHANNEL.WINDOW_SHOW, (_, name: string) => {
+  ipcMain.handle(IPC_CHANNEL.WINDOW_SHOW, (event, name: string) => {
+    if (!isTrustedSender(event)) return;
     const window = windowService.getWindow(name);
     if (window && !window.isDestroyed()) {
       windowService.showWindow(window);

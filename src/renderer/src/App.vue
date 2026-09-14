@@ -43,7 +43,6 @@ watch(
       setupConf.value[key] = val[key];
     }
   },
-  { deep: true },
 );
 watch(
   () => storeSetting.displayTheme,

@@ -1,9 +1,9 @@
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { isStrEmpty, isString } from '../validate';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Compressing a directory into a tgz file
@@ -15,7 +15,7 @@ export async function compress(src: string, dest: string): Promise<boolean> {
   if (!isString(src) || isStrEmpty(src) || !isString(dest) || isStrEmpty(dest)) return false;
 
   try {
-    await execAsync(`tar -czf "${dest}" -C "${src}" .`);
+    await execFileAsync('tar', ['-czf', dest, '-C', src, '.']);
     return true;
   } catch {
     return false;
@@ -33,7 +33,7 @@ export async function decompress(src: string, dest: string): Promise<boolean> {
   if (!(src.endsWith('.tar.gz') || src.endsWith('.tgz'))) return false;
 
   try {
-    await execAsync(`tar -xzf "${src}" -C "${dest}"`);
+    await execFileAsync('tar', ['-xzf', src, '-C', dest]);
     return true;
   } catch {
     return false;

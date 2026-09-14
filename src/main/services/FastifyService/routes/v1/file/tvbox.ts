@@ -1,16 +1,6 @@
-import { basename, dirname, extname, join, relative, sep } from 'node:path';
+import { basename, extname, join, relative, sep } from 'node:path';
 
-import {
-  fileState,
-  fileStateSync,
-  pathExist,
-  readDirFaster,
-  readDirSync,
-  readFile,
-  readFileSync,
-  resolveWithinPath,
-  saveFile,
-} from '@main/utils/file';
+import { fileState, pathExist, readDirFaster, readFile, resolveWithinPath } from '@main/utils/file';
 import { APP_FILE_PATH } from '@main/utils/path';
 import type { TvboxAutoParams, TvboxMakeParams } from '@server/schemas/v1/file/tvbox';
 import { autoSchema, makeSchema } from '@server/schemas/v1/file/tvbox';
@@ -102,29 +92,7 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
           return reply.code(200).send({});
         }
 
-        const indexPath = join(filePath, 'index.js');
         const jsonPath = join(filePath, 'index.json');
-
-        const indexState = await fileState(indexPath);
-        if (indexState === 'file') {
-          const content = await readFile(indexPath);
-
-          // eslint-disable-next-line no-new-func
-          const func = new Function('pathLib', 'path_dir', `${content}\n return main;`);
-          const fn = func(
-            {
-              join,
-              dirname,
-              readDir: readDirSync,
-              readFile: readFileSync,
-              stat: fileStateSync,
-            },
-            filePath,
-          );
-          const resp = await fn();
-
-          await saveFile(join(filePath, 'index.json'), resp);
-        }
 
         const jsonState = await fileState(jsonPath);
         if (jsonState === 'file') {

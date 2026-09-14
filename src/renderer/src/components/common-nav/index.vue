@@ -138,10 +138,10 @@ const fuseCollection = () => {
   }
 };
 
+const _measureCanvas = document.createElement('canvas');
+const _measureCtx = _measureCanvas.getContext('2d')!;
 const measureText = (text: string): number => {
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  return ctx!.measureText(text).width;
+  return _measureCtx.measureText(text).width;
 };
 
 const handleItemClick = (key: string | number) => {

@@ -135,6 +135,9 @@ const setup = () => {
 
 const dispose = () => {
   storePlayer.updateConfig({ status: false });
+  window.electron.ipcRenderer.removeAllListeners(IPC_CHANNEL.WINDOW_DESTROY);
+  window.electron.ipcRenderer.removeAllListeners(IPC_CHANNEL.MEDIA_PAUSE);
+  window.electron.ipcRenderer.removeAllListeners(IPC_CHANNEL.MEDIA_BROWSE);
 };
 
 const toggleAside = () => {

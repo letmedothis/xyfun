@@ -245,7 +245,7 @@ import { isObject, isObjectEmpty, isPositiveFiniteNumber } from '@shared/modules
 import { cloneDeep, isEqual, pickBy } from 'es-toolkit';
 import { InfoCircleIcon } from 'tdesign-icons-vue-next';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
-import { computed, defineAsyncComponent, onActivated, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onActivated, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import { dataDbClear } from '@/api/data';
 import { fetchSettingList, sourceSetting } from '@/api/setting';
@@ -410,6 +410,11 @@ watch(
 );
 
 onMounted(() => setup());
+
+onUnmounted(() => {
+  window.electron.ipcRenderer.removeAllListeners(IPC_CHANNEL.ZOOM_UPDATED);
+  emitter.off(emitterChannel.REFRESH_SETTING_CONFIG, reloadConfig);
+});
 
 onActivated(() => {
   emitter.off(emitterChannel.REFRESH_SETTING_CONFIG, reloadConfig);

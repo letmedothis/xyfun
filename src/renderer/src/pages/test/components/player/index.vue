@@ -92,7 +92,7 @@
 <script setup lang="ts">
 import axios from 'axios';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { onMounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 
 import { fetchRecBarrage } from '@/api/film';
 import { mediaUtils, MultiPlayer } from '@/components/multi-player';
@@ -120,9 +120,16 @@ const form = ref({
   barrageCustom: 'https://dmku.hls.one/?ac=dm&url=https://v.qq.com/x/cover/mzc00200xntoaip/a4101fjl3l1.html',
 });
 
+const handlePlayNext = ({ data: _eventData }) => {
+  MessagePlugin.info('播放下集事件触发');
+};
+
 onMounted(() => {
-  // tool();
-  // timer();
+  emitter.on(emitterChannel.COMP_MULTI_PLAYER_PLAYNEXT, handlePlayNext);
+});
+
+onUnmounted(() => {
+  emitter.off(emitterChannel.COMP_MULTI_PLAYER_PLAYNEXT, handlePlayNext);
 });
 
 // @ts-expect-error declared but its value is never read
@@ -399,10 +406,6 @@ const pauseEvent = () => {
 const togglePlayEvent = () => {
   mseRef.value.togglePlay();
 };
-
-emitter.on(emitterChannel.COMP_MULTI_PLAYER_PLAYNEXT, ({ data: _eventData }) => {
-  MessagePlugin.info('播放下集事件触发');
-});
 </script>
 <style lang="less" scoped>
 .view-component-container {

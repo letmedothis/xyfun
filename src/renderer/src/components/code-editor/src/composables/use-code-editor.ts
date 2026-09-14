@@ -9,7 +9,7 @@ import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 import TypeScriptWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 import YamlWorker from 'monaco-yaml/yaml.worker?worker';
 import type { SetupContext } from 'vue';
-import { nextTick, onBeforeMount, onMounted, ref, toRefs, watch } from 'vue';
+import { nextTick, onBeforeMount, onMounted, onUnmounted, ref, toRefs, watch } from 'vue';
 
 import type { CodeEditorProps, IComment, IDecoration, IEditor, ILayoutInfo, IPositionInfo } from '../code-editor-types';
 
@@ -98,6 +98,15 @@ export function useCodeEditor(props: CodeEditorProps, ctx: SetupContext) {
           refreshOverlayWidgets();
         });
       }
+    }
+  });
+
+  onUnmounted(() => {
+    if (editor) {
+      editor.dispose();
+    }
+    if (diffEditor) {
+      diffEditor.dispose();
     }
   });
 

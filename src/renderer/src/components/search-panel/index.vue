@@ -136,7 +136,7 @@ import { toSubtract, toYMD } from '@shared/modules/date';
 import { throttle } from 'es-toolkit';
 import { CloseCircleFilledIcon, DeleteIcon, SearchIcon } from 'tdesign-icons-vue-next';
 import type { PopupVisibleChangeContext } from 'tdesign-vue-next';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 import { fetchRecAssociation, fetchRecHot } from '@/api/film';
@@ -205,6 +205,11 @@ onMounted(() => {
 
   emitter.off(emitterChannel.SEARCH_RECOMMEND, reloadKwConfig);
   emitter.on(emitterChannel.SEARCH_RECOMMEND, reloadKwConfig);
+});
+
+onUnmounted(() => {
+  emitter.off(emitterChannel.REFRESH_SEARCH_CONFIG, reloadConfig);
+  emitter.off(emitterChannel.SEARCH_RECOMMEND, reloadKwConfig);
 });
 
 watch(
@@ -291,7 +296,10 @@ const getHotList = async (retryCount: number = 1) => {
   }
 };
 
+let searchSeq = 0;
+
 const getSuggestList = async () => {
+  const seq = ++searchSeq;
   associationConfig.value.load = true;
 
   try {
@@ -303,13 +311,18 @@ const getSuggestList = async () => {
       source: associationConfig.value.active,
     });
 
+    if (seq !== searchSeq) return;
+
     if (resp?.length) {
       associationList.value = resp.slice(0, MAX_ASSOCIATION_ITEMS);
     }
   } catch (error) {
+    if (seq !== searchSeq) return;
     console.error('Failed to load association list:', error);
   } finally {
-    associationConfig.value.load = false;
+    if (seq === searchSeq) {
+      associationConfig.value.load = false;
+    }
   }
 };
 const throttleGetSuggestList = throttle(getSuggestList, 1000, { edges: ['leading', 'trailing'] });

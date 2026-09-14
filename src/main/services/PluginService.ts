@@ -248,7 +248,7 @@ class PluginService {
         const pluginPkgLockPath = join(pluginBasePath, 'package-lock.json');
         await fileDelete(pluginPkgLockPath);
 
-        await npminstall({ root: pluginBasePath, registry: this.registry, ignoreScripts: false });
+        await npminstall({ root: pluginBasePath, registry: this.registry, ignoreScripts: true });
 
         if (pluginBasePath === dbInfo?.base) {
           await dbService.plugin.update([dbInfo.id], data);
