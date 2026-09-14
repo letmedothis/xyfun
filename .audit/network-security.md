@@ -23,6 +23,7 @@ The xyfun project is an Electron-based media player/aggregator with a complex pl
 **File**: `src/main/services/FastifyService/routes/v1/file/tvbox.ts`
 **Line**: 113
 **Code**:
+
 ```typescript
 const func = new Function('pathLib', 'path_dir', `${content}\n return main;`);
 const fn = func(
@@ -37,6 +38,7 @@ const fn = func(
 );
 const resp = await fn();
 ```
+
 **Trigger**: HTTP GET `/api/v1/file/film/make/:type/*` — user controls `path` parameter which resolves to `filePath`. If an `index.js` file exists at that path, its content is executed via `new Function`.
 **Call Chain**: `GET /api/v1/file/film/make/:type/*` → `resolveWithinPath(APP_FILE_PATH, path)` → `readFile(indexPath)` → `new Function(content)()` → arbitrary JS execution
 **Root Cause**: The content of `index.js` files within the APP_FILE_PATH directory is loaded and executed via `new Function()` without any sandboxing or validation. An attacker who can write a file to APP_FILE_PATH (via the manage endpoint or other means) can achieve arbitrary code execution in the main process.
@@ -55,11 +57,13 @@ const resp = await fn();
 **File**: `src/main/services/FastifyService/routes/v1/film/cms/adapter/t3Catopen/worker.ts`
 **Line**: 49-51
 **Code**:
+
 ```typescript
 const dataUri = `data:text/javascript;base64,${base64.encode({ src: code })}`;
 const modRaw = await import(dataUri);
 const mod = isFunction(modRaw.__jsEvalReturn) ? modRaw.__jsEvalReturn() : (modRaw.default ?? modRaw);
 ```
+
 **Trigger**: CMS adapter `t3Catopen` fetches code from a remote API URL (`this.api`) and executes it via dynamic `import()` using a data URI.
 **Call Chain**: `CMS init(uuid)` → `adapter(uuid)` → `T3CatopenAdapter.init()` → `request.request(this.api)` → `import(data:text/javascript;base64,...)` → arbitrary JS execution in worker process
 **Root Cause**: The `code` variable is fetched from a user-configured remote URL (`this.api`) without any integrity verification, signature checking, or sandboxing. The remote code is base64-encoded and imported as a module, giving it full Node.js worker process capabilities.
@@ -78,10 +82,12 @@ const mod = isFunction(modRaw.__jsEvalReturn) ? modRaw.__jsEvalReturn() : (modRa
 **File**: `src/main/services/FastifyService/routes/v1/film/cms/adapter/t3Drpy/worker.ts`
 **Line**: 5-7
 **Code**:
+
 ```typescript
 import drpy from './drpy2.min';
 const { action, category, detail, home, homeVod, init, play, proxy, search } = drpy;
 ```
+
 **Trigger**: CMS adapter `t3Drpy` uses a bundled minified JavaScript engine (`drpy2.min.js`) that executes user-configured rules/scripts.
 **Call Chain**: `CMS init(uuid)` → `adapter(uuid)` → `T3DrpyAdapter.init(ext)` → `execCtx('init', this.ext)` → `workerpool.exec()` → `drpy.init(options)` → rule execution
 **Root Cause**: The drpy engine executes user-provided rules and scripts within a workerpool worker. The `ext` parameter (user-configured site extension) is passed directly to the drpy engine which interprets it as executable rules. The drpy engine has access to `req` (HTTP requests) and other system-level functions via the inject module.
@@ -100,6 +106,7 @@ const { action, category, detail, home, homeVod, init, play, proxy, search } = d
 **File**: `src/main/services/FastifyService/routes/v1/film/cms/adapter/t3Py.ts`
 **Line**: 258-264
 **Code**:
+
 ```typescript
 async init(): ICmsResultPromise['init'] {
   let content = '';
@@ -112,6 +119,7 @@ async init(): ICmsResultPromise['init'] {
   return resp;
 }
 ```
+
 **Trigger**: CMS adapter `t3Py` fetches Python code from a remote URL and sends it to a local gRPC service for execution.
 **Call Chain**: `CMS init(uuid)` → `adapter(uuid)` → `T3PyAdapter.init()` → `request.request(this.api)` → `this.code = content` → `connectService.execCtx(this.code, 'init', [this.ext])` → gRPC `Exec` call → Python code execution
 **Root Cause**: Python code is fetched from a user-configured remote URL and executed via a local gRPC service (`0.0.0.0:19979`). The gRPC service binds to all interfaces, making it accessible from the local network. The Python code has full system access through the `uv` runtime.
@@ -130,6 +138,7 @@ async init(): ICmsResultPromise['init'] {
 **File**: `src/main/services/PluginService.ts`
 **Line**: 89-94, 251
 **Code**:
+
 ```typescript
 // Line 89-94: Plugin code execution
 rawMod = await import(modulePath);
@@ -138,6 +147,7 @@ globalThis.entryModule = rawMod;
 // Line 251: Plugin installation with ignoreScripts: false
 await npminstall({ root: pluginBasePath, registry: this.registry, ignoreScripts: false });
 ```
+
 **Trigger**: Plugin installation via `POST /api/v1/plugin` and plugin start via `PUT /api/v1/plugin`.
 **Call Chain**: `POST /api/v1/plugin` → `pluginService.install(id)` → `npminstall()` (runs install scripts) → `PUT /api/v1/plugin` → `pluginService.start(id)` → `workerpool.pool()` → `pool.exec(manageModule)` → `import(modulePath)` → arbitrary code execution
 **Root Cause**: Plugins are installed from user-specified directories with `ignoreScripts: false`, meaning npm lifecycle scripts (preinstall, install, postinstall) are executed during installation. Plugin code is then executed via workerpool with full Node.js capabilities. The worker process has access to `process`, `require`, `fs`, and all Node.js APIs.
@@ -156,6 +166,7 @@ await npminstall({ root: pluginBasePath, registry: this.registry, ignoreScripts:
 **File**: `src/main/services/CdpElectron.ts`
 **Line**: 257-278
 **Code**:
+
 ```typescript
 // Execute custom scripts
 if (isString(initScript) && !isStrEmpty(initScript)) {
@@ -181,6 +192,7 @@ if (isString(runScript) && !isStrEmpty(runScript)) {
   await this.execScript(page, code, 'evaluateOnNewDocument');
 }
 ```
+
 **Trigger**: CMS play endpoint returns `script` object with `runScript`/`initScript` fields, which are passed to CDP sniffer.
 **Call Chain**: `CMS play(uuid)` → adapter returns `{ script: { runScript, initScript } }` → renderer calls `POST /api/v1/system/cdp/sniffer/media` → `snifferMediaToStandard(url, { runScript, initScript })` → `CdpElectron.snifferMedia()` → `page.evaluateOnNewDocument(script)` → arbitrary JS in Puppeteer page
 **Root Cause**: User-controlled script content from CMS adapters is directly interpolated into JavaScript code that is executed in the Puppeteer page context via `evaluateOnNewDocument`. The `runScript` variable is injected into a template string without sanitization, allowing code injection.
@@ -199,6 +211,7 @@ if (isString(runScript) && !isStrEmpty(runScript)) {
 **File**: `src/main/services/FastifyService/routes/v0/proxy/utils/safeRemoteUrl.ts`
 **Line**: 14-33
 **Code**:
+
 ```typescript
 export const isSafeRemoteUrl = async (rawUrl: string): Promise<boolean> => {
   let parsed: URL;
@@ -218,6 +231,7 @@ export const isSafeRemoteUrl = async (rawUrl: string): Promise<boolean> => {
   }
 };
 ```
+
 **Trigger**: Proxy endpoint `GET /proxy` and `HEAD /proxy` validate URLs before fetching.
 **Call Chain**: `GET /proxy?url=<url>` → `isSafeRemoteUrl(url)` → DNS lookup → check if private → fetch if safe
 **Root Cause**: The SSRF protection has a TOCTOU (Time-of-Check-Time-of-Use) vulnerability. The DNS resolution happens during validation, but the actual HTTP request may resolve to a different IP address (DNS rebinding). Additionally, the `isPrivateAddress` check uses `ipaddr.js` which may not cover all edge cases (e.g., IPv6-mapped IPv4 addresses).
@@ -236,9 +250,11 @@ export const isSafeRemoteUrl = async (rawUrl: string): Promise<boolean> => {
 **File**: `src/main/services/FastifyService/routes/v1/film/cms/adapter/t3Py.ts`
 **Line**: 91
 **Code**:
+
 ```typescript
 const client = new ClientCtor(`0.0.0.0:${this.port}`, grpc.credentials.createInsecure());
 ```
+
 **Trigger**: t3Py adapter initialization connects to gRPC service.
 **Call Chain**: `T3PyAdapter.prepare()` → `connectService.connect()` → `new ClientCtor('0.0.0.0:19979', grpc.credentials.createInsecure())`
 **Root Cause**: The gRPC client connects to `0.0.0.0:19979` with insecure credentials (no TLS, no authentication). While this is a client connection, the Python gRPC server likely also binds to all interfaces. Any process on the local network can connect to this service and execute arbitrary Python code.
@@ -271,16 +287,16 @@ const client = new ClientCtor(`0.0.0.0:${this.port}`, grpc.credentials.createIns
 
 ## Recommendations Summary
 
-| Priority | Finding | Recommendation |
-|----------|---------|----------------|
-| P0 | NET-001 | Remove `new Function()` in tvbox handler; use declarative config |
-| P0 | NET-002 | Implement code signing for remote scripts in t3Catopen |
-| P1 | NET-003 | Sandbox drpy engine with restricted network access |
-| P1 | NET-004 | Bind gRPC to 127.0.0.1; add authentication; sign remote Python code |
-| P1 | NET-005 | Set `ignoreScripts: true`; sandbox plugin execution |
-| P1 | NET-006 | Sanitize scripts; use function arguments instead of string interpolation |
-| P2 | NET-007 | Use connection-time IP validation to prevent DNS rebinding |
-| P2 | NET-008 | Bind gRPC to 127.0.0.1; add authentication |
+| Priority | Finding | Recommendation                                                           |
+| -------- | ------- | ------------------------------------------------------------------------ |
+| P0       | NET-001 | Remove `new Function()` in tvbox handler; use declarative config         |
+| P0       | NET-002 | Implement code signing for remote scripts in t3Catopen                   |
+| P1       | NET-003 | Sandbox drpy engine with restricted network access                       |
+| P1       | NET-004 | Bind gRPC to 127.0.0.1; add authentication; sign remote Python code      |
+| P1       | NET-005 | Set `ignoreScripts: true`; sandbox plugin execution                      |
+| P1       | NET-006 | Sanitize scripts; use function arguments instead of string interpolation |
+| P2       | NET-007 | Use connection-time IP validation to prevent DNS rebinding               |
+| P2       | NET-008 | Bind gRPC to 127.0.0.1; add authentication                               |
 
 ---
 

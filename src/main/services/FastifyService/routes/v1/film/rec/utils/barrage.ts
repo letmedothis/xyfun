@@ -67,8 +67,8 @@ export const fetchBarrage = async (id: string, options: IBarrageOptions): Promis
         color,
       };
     })
-    .filter(Boolean)
-    .sort((a, b) => a!.time - b!.time) as IBarrage[];
+    .filter((item): item is IBarrage => item !== null)
+    .sort((a, b) => a.time - b.time);
 
   return { id: uuid, list: res };
 };

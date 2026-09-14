@@ -1,6 +1,5 @@
 import { Buffer } from 'node:buffer';
 
-import { request } from '@main/utils/request';
 import type { GetProxyCacheRequest, SetProxyCacheRequest } from '@server/schemas/v0/proxy';
 import { getSchema, setSchema } from '@server/schemas/v0/proxy';
 import { PROXY_API } from '@shared/config/env';
@@ -12,6 +11,7 @@ import type { FastifyPluginAsync } from 'fastify';
 
 import { generateCacheKey } from './utils/cache';
 import { isSafeRemoteUrl } from './utils/safeRemoteUrl';
+import { safeRequest } from './utils/ssrfSafeRequest';
 
 const API_PREFIX = 'proxy';
 const PROXY_CACHE_TTL = 10 * 60 * 1000;
@@ -43,14 +43,13 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
         }
 
         if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'].some((ext) => url.toLowerCase().includes(ext))) {
-          const { data: resp } = await request.request({
-            url,
+          const { body } = await safeRequest(url, {
             method: 'GET',
-            fetchOptions: { redirect: 'error' },
             headers: {
               'User-Agent': USER_AGENT.PC_DARWIN_CHROME,
             },
           });
+          const resp = await body.text();
           if (isString(resp) && resp.includes('base64,')) {
             const parts = resp.split(';base64,');
             if (parts.length === 2) {
@@ -105,14 +104,13 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
         }
 
         if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'].some((ext) => url.toLowerCase().includes(ext))) {
-          const { data: resp } = await request.request({
-            url,
+          const { body } = await safeRequest(url, {
             method: 'GET',
-            fetchOptions: { redirect: 'error' },
             headers: {
               'User-Agent': USER_AGENT.PC_DARWIN_CHROME,
             },
           });
+          const resp = await body.text();
           if (isString(resp) && resp.includes('base64,')) {
             const parts = resp.split(';base64,');
             if (parts.length === 2) {

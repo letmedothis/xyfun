@@ -1,6 +1,6 @@
-export const ORIGIN = import.meta.env.VITE_API_URL;
-export const PORT = import.meta.env.VITE_API_PORT;
-export const PREFIX = import.meta.env.VITE_API_URL_PREFIX;
+export const ORIGIN = import.meta.env.VITE_API_URL || 'http://127.0.0.1';
+export const PORT = Number(import.meta.env.VITE_API_PORT) || 9978;
+export const PREFIX = import.meta.env.VITE_API_PREFIX || '';
 export const PREFIX_API = `${ORIGIN}${PREFIX}`;
 
 export const PROXY_API = `${ORIGIN}/proxy`;

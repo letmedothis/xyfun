@@ -56,7 +56,7 @@ export function calculateSize(bytes: number, options: ISizeOption = {}): { count
     }
   }
 
-  const round = 10 * decimal;
+  const round = Math.max(1, 10 * decimal);
   const count = Math.round(bytes * round) / round;
 
   return { count, unit: UNITS[targetIndex] };

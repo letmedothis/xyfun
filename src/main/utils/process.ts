@@ -131,6 +131,9 @@ export async function matchPs(keyword: string): Promise<number[]> {
   if (isPositiveFiniteNumber(keyword)) keyword = String(keyword);
   if (!isString(keyword) || isStrEmpty(keyword)) return [];
 
+  const sanitizedKeyword = keyword.replace(/[^\w\s\-./]/g, '');
+  if (isStrEmpty(sanitizedKeyword)) return [];
+
   try {
     const { stdout: output } = isWindows
       ? await execFileAsync(
@@ -141,9 +144,9 @@ export async function matchPs(keyword: string): Promise<number[]> {
             '-Command',
             'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:ZY_PROCESS_KEYWORD) } | Select-Object -ExpandProperty ProcessId',
           ],
-          { encoding: 'utf8', env: { ...process.env, ZY_PROCESS_KEYWORD: keyword } },
+          { encoding: 'utf8', env: { ...process.env, ZY_PROCESS_KEYWORD: sanitizedKeyword } },
         )
-      : await execFileAsync('pgrep', ['-f', keyword], { encoding: 'utf8' });
+      : await execFileAsync('pgrep', ['-f', sanitizedKeyword], { encoding: 'utf8' });
     const outputText = String(output);
     if (!outputText) return [];
 
@@ -172,6 +175,9 @@ export function matchPsSync(keyword: string): number[] {
   if (isPositiveFiniteNumber(keyword)) keyword = String(keyword);
   if (!isString(keyword) || isStrEmpty(keyword)) return [];
 
+  const sanitizedKeyword = keyword.replace(/[^\w\s\-./]/g, '');
+  if (isStrEmpty(sanitizedKeyword)) return [];
+
   try {
     const output = isWindows
       ? execFileSync(
@@ -182,9 +188,9 @@ export function matchPsSync(keyword: string): number[] {
             '-Command',
             'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:ZY_PROCESS_KEYWORD) } | Select-Object -ExpandProperty ProcessId',
           ],
-          { encoding: 'utf8', env: { ...process.env, ZY_PROCESS_KEYWORD: keyword } },
+          { encoding: 'utf8', env: { ...process.env, ZY_PROCESS_KEYWORD: sanitizedKeyword } },
         )
-      : execFileSync('pgrep', ['-f', keyword], { encoding: 'utf8' });
+      : execFileSync('pgrep', ['-f', sanitizedKeyword], { encoding: 'utf8' });
     if (!output) return [];
 
     const pids = output

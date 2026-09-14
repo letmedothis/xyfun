@@ -108,36 +108,40 @@ watch(
 onMounted(() => setup());
 onUnmounted(() => dispose());
 
-const setup = () => {
-  window.electron.ipcRenderer.on(IPC_CHANNEL.WINDOW_DESTROY, () => {
-    storePlayer.updateConfig({ status: false });
-    window.electron.ipcRenderer.send(IPC_CHANNEL.WINDOW_DESTROY_RELAY);
-  });
+const onWindowDestroy = () => {
+  storePlayer.updateConfig({ status: false });
+  window.electron.ipcRenderer.send(IPC_CHANNEL.WINDOW_DESTROY_RELAY);
+};
 
-  window.electron.ipcRenderer.on(IPC_CHANNEL.MEDIA_PAUSE, (_event, status) => {
-    status === true ? playerRef.value?.pause() : playerRef.value?.play();
-  });
+const onMediaPause = (_event: Electron.IpcRendererEvent, status: boolean) => {
+  status === true ? playerRef.value?.pause() : playerRef.value?.play();
+};
 
-  window.electron.ipcRenderer.on(IPC_CHANNEL.MEDIA_BROWSE, (_event, status) => {
-    if (headerFormData.value.browse) {
-      if (status) {
-        window.electron.ipcRenderer.invoke(IPC_CHANNEL.WINDOW_HIDE, WINDOW_NAME.PLAYER);
-        playerRef.value?.pause();
-      } else {
-        window.electron.ipcRenderer.invoke(IPC_CHANNEL.WINDOW_SHOW, WINDOW_NAME.PLAYER);
-        playerRef.value?.play();
-      }
+const onMediaBrowse = (_event: Electron.IpcRendererEvent, status: boolean) => {
+  if (headerFormData.value.browse) {
+    if (status) {
+      window.electron.ipcRenderer.invoke(IPC_CHANNEL.WINDOW_HIDE, WINDOW_NAME.PLAYER);
+      playerRef.value?.pause();
+    } else {
+      window.electron.ipcRenderer.invoke(IPC_CHANNEL.WINDOW_SHOW, WINDOW_NAME.PLAYER);
+      playerRef.value?.play();
     }
-  });
+  }
+};
+
+const setup = () => {
+  window.electron.ipcRenderer.on(IPC_CHANNEL.WINDOW_DESTROY, onWindowDestroy);
+  window.electron.ipcRenderer.on(IPC_CHANNEL.MEDIA_PAUSE, onMediaPause);
+  window.electron.ipcRenderer.on(IPC_CHANNEL.MEDIA_BROWSE, onMediaBrowse);
 
   document.title = `${APP_NAME}(${t('pages.player.title')})`;
 };
 
 const dispose = () => {
   storePlayer.updateConfig({ status: false });
-  window.electron.ipcRenderer.removeAllListeners(IPC_CHANNEL.WINDOW_DESTROY);
-  window.electron.ipcRenderer.removeAllListeners(IPC_CHANNEL.MEDIA_PAUSE);
-  window.electron.ipcRenderer.removeAllListeners(IPC_CHANNEL.MEDIA_BROWSE);
+  window.electron.ipcRenderer.removeListener(IPC_CHANNEL.WINDOW_DESTROY, onWindowDestroy);
+  window.electron.ipcRenderer.removeListener(IPC_CHANNEL.MEDIA_PAUSE, onMediaPause);
+  window.electron.ipcRenderer.removeListener(IPC_CHANNEL.MEDIA_BROWSE, onMediaBrowse);
 };
 
 const toggleAside = () => {
@@ -178,7 +182,11 @@ const handlePlayerCreate = async (
   const player = storePlayer.player;
 
   if (player.type === 'custom') {
-    window.electron.ipcRenderer.invoke(IPC_CHANNEL.CALL_PLAYER, player.external, item.url);
+    try {
+      await window.electron.ipcRenderer.invoke(IPC_CHANNEL.CALL_PLAYER, player.external, item.url);
+    } catch (error) {
+      console.error('[player] Failed to launch external player:', error);
+    }
   } else {
     const finalItem: IMultiPlayerOptions = {
       ...item,

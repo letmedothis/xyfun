@@ -18,6 +18,12 @@ export interface IBinaryInfo {
 class BinaryService {
   private static instance: BinaryService;
   private readonly DEFAULT_BINARIES = ['uv', 'bun', 'ffmpeg', 'ffprobe'] as const;
+  private readonly ALLOWED_SCRIPTS = new Set([
+    'install-uv.js',
+    'install-bun.js',
+    'install-ffmpeg.js',
+    'install-ffprobe.js',
+  ]);
 
   private constructor() {}
 
@@ -61,7 +67,12 @@ class BinaryService {
     await Promise.all(
       names.map(async (name) => {
         try {
-          await downBinary(join(APP_PUBLIC_PATH, 'scripts', `install-${name}.js`));
+          const scriptName = `install-${name}.js`;
+          if (!this.ALLOWED_SCRIPTS.has(scriptName)) {
+            logger.error(`Rejected install of unauthorized script: ${scriptName}`);
+            return;
+          }
+          await downBinary(join(APP_PUBLIC_PATH, 'scripts', scriptName));
           chmodBinary(this.getBinaryPath(name), 0o755);
         } catch (error) {
           logger.error(`Failed to install binary ${name}: ${(error as Error).message}`);

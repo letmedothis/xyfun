@@ -451,9 +451,10 @@ class T3XbpqAdapter {
 
   async init(): ICmsResultPromise['init'] {
     let res = this.source.ext;
-    if (this.source.ext!.startsWith('http')) {
+    if (!res) return;
+    if (res.startsWith('http')) {
       const { data } = await request.request({
-        url: this.source.ext!,
+        url: res,
         method: 'GET',
         responseType: 'text',
         headers: {
@@ -463,7 +464,7 @@ class T3XbpqAdapter {
       res = data;
     }
     try {
-      res = JSON5.parse(res!);
+      res = JSON5.parse(res);
       this.XBPQRule = Object.assign(this.XBPQRule, res);
     } catch {}
 
@@ -682,12 +683,14 @@ class T3XbpqAdapter {
     const rawClassList: Array<{ type_id: string; type_name: string }> = [];
 
     if (classData.includes('$')) {
-      for (let c of classData.split('#')) {
-        c = c.split('$') as any;
-        rawClassList.push({
-          type_id: c[1],
-          type_name: c[0],
-        });
+      for (const item of classData.split('#')) {
+        const parts = item.split('$');
+        if (parts.length >= 2) {
+          rawClassList.push({
+            type_id: parts[1],
+            type_name: parts[0],
+          });
+        }
       }
     } else if (classData.includes('&') && this.getRuleValue(['分类值'])) {
       const typenames = classData.split('&');

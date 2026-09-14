@@ -242,15 +242,21 @@ const getSetting = async () => {
   }
 };
 
+let channelRequestVersion = 0;
+
 const getChannel = async (): Promise<number> => {
+  const version = channelRequestVersion;
   const { pageIndex, pageSize } = pagination.value;
+  const kw = searchValue.value;
+  const group = active.value.class;
 
   const resp = await fetchChannelPage({
     pageNum: pageIndex,
     pageSize,
-    kw: searchValue.value,
-    group: active.value.class,
+    kw,
+    group,
   });
+  if (version !== channelRequestVersion) return 0;
 
   if (isArray(resp.class) && !isArrayEmpty(resp.class)) {
     classList.value = [
@@ -356,6 +362,7 @@ const loadMore = async ($state: ILoadStateHdandler) => {
 };
 
 const handleSearch = async () => {
+  channelRequestVersion += 1;
   resetPagination();
 
   channelList.value = [];
@@ -373,6 +380,7 @@ const onSearchRecommend = ({ data: eventData }) => {
 };
 
 const onClassChange = (id: string) => {
+  channelRequestVersion += 1;
   clearAllQueues();
   resetPagination();
 
@@ -385,7 +393,7 @@ const onClassChange = (id: string) => {
 
 const playWithExternalPlayer = async (item: IChannel, _active: IModels['iptv']) => {
   const player = storePlayer.player;
-  window.electron.ipcRenderer.invoke(IPC_CHANNEL.CALL_PLAYER, player.external, item.api);
+  await window.electron.ipcRenderer.invoke(IPC_CHANNEL.CALL_PLAYER, player.external, item.api);
 
   infoConf.value = item;
   try {

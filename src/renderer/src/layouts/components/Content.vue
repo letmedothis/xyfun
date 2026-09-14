@@ -10,7 +10,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { emitterChannel } from '@/config/emitterChannel';
@@ -24,10 +24,13 @@ const activeRouteFullPath = computed(() => {
 
 const isRouterAlive = ref(true);
 
-emitter.on(emitterChannel.REFRESH_VIEW, () => {
+const refreshView = () => {
   isRouterAlive.value = false;
   nextTick(() => (isRouterAlive.value = true));
-});
+};
+
+emitter.on(emitterChannel.REFRESH_VIEW, refreshView);
+onUnmounted(() => emitter.off(emitterChannel.REFRESH_VIEW, refreshView));
 </script>
 <style lang="less" scoped>
 .fade-leave-active,

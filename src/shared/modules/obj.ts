@@ -35,6 +35,10 @@ export const json5Tojson = (val: Record<string, any>): Record<string, any> => {
 /**
  * Convert a JSON string to an object by eval
  *
+ * @deprecated This function uses `new Function()` which can execute arbitrary code.
+ * It is a security risk if the input comes from an untrusted source.
+ * Use `jsonStrToObj` (which uses JSON5.parse) instead.
+ *
  * @param val - The JSON string to convert
  * @returns The converted object
  */

@@ -31,3 +31,12 @@ export const isSafeRemoteUrl = async (rawUrl: string): Promise<boolean> => {
     return false;
   }
 };
+
+export const validateHostnameIp = async (hostname: string): Promise<boolean> => {
+  try {
+    const addresses = ipaddr.isValid(hostname) ? [{ address: hostname }] : await lookup(hostname, { all: true });
+    return addresses.length > 0 && addresses.every(({ address }) => !isPrivateAddress(address));
+  } catch {
+    return false;
+  }
+};

@@ -88,7 +88,7 @@ class ConnectService extends PythonService {
 
     try {
       const ClientCtor = createGrpcClientCtor();
-      const client = new ClientCtor(`0.0.0.0:${this.port}`, grpc.credentials.createInsecure());
+      const client = new ClientCtor(`127.0.0.1:${this.port}`, grpc.credentials.createInsecure());
       const deadline = new Date(Date.now() + 5 * 1000);
 
       await new Promise<void>((resolve, reject) => {

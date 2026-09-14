@@ -54,6 +54,22 @@ export interface IModuleExports {
 }
 
 const logger = loggerService.withContext(LOG_MODULE.PLUGIN);
+const PLUGIN_LIFECYCLE_TIMEOUT = 30_000;
+
+const withTimeout = async <T>(task: Promise<T>, timeout: number, message: string): Promise<T> => {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      task,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeout);
+        timer.unref();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
 
 const manageModule = async (entryBasePath: string, modulePath: string, method: 'stop' | 'start'): Promise<boolean> => {
   const workerpool = await import('workerpool');
@@ -343,22 +359,26 @@ class PluginService {
           let status = false;
           try {
             // pool.
-            const resp = await pool.exec(manageModule, [entryBasePath, pluginInfo.main, 'start'], {
-              on(payload) {
-                const { type, level, msg } = payload;
+            const resp = await withTimeout(
+              pool.exec(manageModule, [entryBasePath, pluginInfo.main, 'start'], {
+                on(payload) {
+                  const { type, level, msg } = payload;
 
-                if (type === 'log') {
-                  // const msgType = msg.type;
-                  const msgList = msg?.msg ?? [];
+                  if (type === 'log') {
+                    // const msgType = msg.type;
+                    const msgList = msg?.msg ?? [];
 
-                  const log = msgList.map((t: any) => (isJson(t) ? JSON.stringify(t) : t)).join(' ');
-                  if (/\(node:\d+\)/.test(log)) return;
+                    const log = msgList.map((t: any) => (isJson(t) ? JSON.stringify(t) : t)).join(' ');
+                    if (/\(node:\d+\)/.test(log)) return;
 
-                  const logger = loggerService.withContext(`${LOG_MODULE.PLUGIN}<${pluginInfo.pluginName}>`);
-                  logger[level](log);
-                }
-              },
-            });
+                    const logger = loggerService.withContext(`${LOG_MODULE.PLUGIN}<${pluginInfo.pluginName}>`);
+                    logger[level](log);
+                  }
+                },
+              }),
+              PLUGIN_LIFECYCLE_TIMEOUT,
+              `Plugin ${plugin} startup timed out`,
+            );
             status = resp;
           } catch (error) {
             logger.error(`Plugin ${plugin} startup error:`, error as Error);
@@ -407,22 +427,26 @@ class PluginService {
 
           try {
             const entryBasePath = fileURLToPath(dirname(pluginInfo.main));
-            await pool.exec(manageModule, [entryBasePath, pluginInfo.main, 'stop'], {
-              on(payload) {
-                const { type, level, msg } = payload;
+            await withTimeout(
+              pool.exec(manageModule, [entryBasePath, pluginInfo.main, 'stop'], {
+                on(payload) {
+                  const { type, level, msg } = payload;
 
-                if (type === 'log') {
-                  // const msgType = msg.type;
-                  const msgList = msg?.msg ?? [];
+                  if (type === 'log') {
+                    // const msgType = msg.type;
+                    const msgList = msg?.msg ?? [];
 
-                  const log = msgList.map((t: any) => (isJson(t) ? JSON.stringify(t) : t)).join(' ');
-                  if (/\(node:\d+\)/.test(log)) return;
+                    const log = msgList.map((t: any) => (isJson(t) ? JSON.stringify(t) : t)).join(' ');
+                    if (/\(node:\d+\)/.test(log)) return;
 
-                  const logger = loggerService.withContext(`${LOG_MODULE.PLUGIN}<${pluginInfo.pluginName}>`);
-                  logger[level](log);
-                }
-              },
-            });
+                    const logger = loggerService.withContext(`${LOG_MODULE.PLUGIN}<${pluginInfo.pluginName}>`);
+                    logger[level](log);
+                  }
+                },
+              }),
+              PLUGIN_LIFECYCLE_TIMEOUT,
+              `Plugin ${plugin} shutdown timed out`,
+            );
           } catch (error) {
             logger.warn(`Plugin ${plugin} stop error:`, error as Error);
           } finally {

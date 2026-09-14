@@ -11,6 +11,15 @@ import { dialog } from 'electron';
 
 const logger = loggerService.withContext(LOG_MODULE.APP_PROTOCOL);
 
+const isSafeUrl = (url: string): boolean => {
+  try {
+    const parsed = new URL(url);
+    return ['http:', 'https:'].includes(parsed.protocol);
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Handle zy://sub?lang={{lang}}&name={{name}}&url={{url}}
  */
@@ -19,7 +28,10 @@ export async function handleSubProtocolUrl(url: URL) {
   const name = url.searchParams.get('name');
   const subUrl = url.searchParams.get('url');
 
-  if (!subUrl) return;
+  if (!subUrl || !isSafeUrl(subUrl)) {
+    logger.warn(`Rejected unsafe sub protocol URL: ${subUrl}`);
+    return;
+  }
 
   try {
     let filename = '';

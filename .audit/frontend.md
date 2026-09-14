@@ -8,11 +8,11 @@
 
 ## Summary
 
-| Severity | Count |
-|----------|-------|
-| 🔴 Critical (leaks) | 7 |
-| 🟠 High (perf/UX) | 5 |
-| 🟡 Medium | 4 |
+| Severity            | Count |
+| ------------------- | ----- |
+| 🔴 Critical (leaks) | 7     |
+| 🟠 High (perf/UX)   | 5     |
+| 🟡 Medium           | 4     |
 
 ---
 
@@ -39,6 +39,7 @@ const dispose = () => {
 Every mount/unmount cycle stacks new listeners. Rapid open/close of player window accumulates leaked callbacks.
 
 **Fix**: Remove all three listeners in `dispose()`:
+
 ```js
 const dispose = () => {
   storePlayer.updateConfig({ status: false });
@@ -57,6 +58,7 @@ const dispose = () => {
 `loginBasic()` registers `ipcRenderer.on(IPC_CHANNEL.LOGIN_BASIC, ...)` in `onMounted` but there is no `onUnmounted` or cleanup. Each component mount adds a new listener.
 
 **Fix**: Add `onUnmounted`:
+
 ```js
 onUnmounted(() => {
   window.electron.ipcRenderer.removeAllListeners(IPC_CHANNEL.LOGIN_BASIC);
@@ -82,6 +84,7 @@ onUnmounted(() => {
 Registers two emitter listeners (`REFRESH_SEARCH_CONFIG`, `SEARCH_RECOMMEND`) in `onMounted` but has no `onUnmounted` to remove them. The `SearchPanel` lives in the layout header so it's effectively permanent — but this is still a pattern violation that would leak if the layout ever changes.
 
 **Fix**: Add cleanup:
+
 ```js
 onUnmounted(() => {
   emitter.off(emitterChannel.REFRESH_SEARCH_CONFIG, reloadConfig);
@@ -124,6 +127,7 @@ Registered at module scope with no cleanup. Same pattern as AsideFilm.
 Creates `monaco.editor.create(...)` in `onMounted` but the composable has no `onUnmounted` to call `editor.dispose()`. Monaco editors and their web workers accumulate if the component is re-created. The `window.MonacoEnvironment` is also set globally on every mount.
 
 **Fix**: Add editor disposal:
+
 ```js
 onUnmounted(() => {
   editor?.dispose();
@@ -175,6 +179,7 @@ watch(
 Uses `throttle` (1s) but not `AbortController`. If the user types fast, older responses can arrive after newer ones and overwrite the correct results. The `associationList.value = []` reset helps but doesn't fully prevent the race — if request A (for "abc") completes after request B (for "abcd"), the stale "abc" results replace "abcd" results.
 
 **Fix**: Use an AbortController or a request sequence counter:
+
 ```js
 let searchSeq = 0;
 const getSuggestList = async () => {
@@ -220,6 +225,7 @@ const measureText = (text: string): number => {
 Called for every item in the list during render (`<template v-if="measureText(item.name) < width">`). Creates a new `<canvas>` element each time.
 
 **Fix**: Cache the canvas/context outside the function:
+
 ```js
 const _measureCanvas = document.createElement('canvas');
 const _measureCtx = _measureCanvas.getContext('2d')!;
@@ -233,6 +239,7 @@ const measureText = (text: string) => _measureCtx.measureText(text).width;
 ### 13. `removeAllListeners` used instead of specific `removeListener`
 
 **Files**:
+
 - `pages/browser/index.vue:210-211`
 - `components/system-control/index.vue:120,131`
 - `pages/setting/components/base/components/DialogUpdate.vue:146`
@@ -293,32 +300,32 @@ Added in `connectTerminal()` which is called from `setup()`. The `dispose()` cal
 
 ## Files Audited (clean — no issues found)
 
-| File | Notes |
-|------|-------|
-| `components/webview/index.vue` | Properly adds/removes listeners, cleans up IPC |
-| `components/terminal/index.vue` | Proper cleanup in `dispose()` |
-| `components/action/components/ActionSection.vue` | Timer properly cleared in `stopTimeout` |
-| `components/multi-player/src/multi-player.tsx` | `onUnmounted(() => destroy())` |
-| `hooks/useWorkerPool.ts` | `onBeforeUnmount` terminates pool |
-| `hooks/useHistory.ts` | No lifecycle hooks, no leak |
-| `hooks/useStar.ts` | No lifecycle hooks, no leak |
-| `store/modules/*.ts` | Pinia stores, no lifecycle concerns |
-| `utils/vitalsObserver.ts` | Proper start/stop with observer disconnect |
-| `utils/ospy.ts` | Proper start/stop |
-| `components/title-menu/index.vue` | ResizeObserver disconnected in `dispose()` |
-| `pages/film/index.vue` | Uses AbortController properly |
+| File                                             | Notes                                          |
+| ------------------------------------------------ | ---------------------------------------------- |
+| `components/webview/index.vue`                   | Properly adds/removes listeners, cleans up IPC |
+| `components/terminal/index.vue`                  | Proper cleanup in `dispose()`                  |
+| `components/action/components/ActionSection.vue` | Timer properly cleared in `stopTimeout`        |
+| `components/multi-player/src/multi-player.tsx`   | `onUnmounted(() => destroy())`                 |
+| `hooks/useWorkerPool.ts`                         | `onBeforeUnmount` terminates pool              |
+| `hooks/useHistory.ts`                            | No lifecycle hooks, no leak                    |
+| `hooks/useStar.ts`                               | No lifecycle hooks, no leak                    |
+| `store/modules/*.ts`                             | Pinia stores, no lifecycle concerns            |
+| `utils/vitalsObserver.ts`                        | Proper start/stop with observer disconnect     |
+| `utils/ospy.ts`                                  | Proper start/stop                              |
+| `components/title-menu/index.vue`                | ResizeObserver disconnected in `dispose()`     |
+| `pages/film/index.vue`                           | Uses AbortController properly                  |
 
 ---
 
 ## Simulation: Rapid User Actions
 
-| Scenario | Result |
-|----------|--------|
-| Open/close player 100 times | **🔴 Leaks 300 IPC listeners** (3 per open, never removed) |
-| Switch IPTV sources 100 times | **🟡 Stale queue tasks** may update wrong data; emitter off/on is correct |
-| Type in search 100 keystrokes | **🟡 Throttle prevents most races**, but stale results can overwrite |
-| Open/close settings 100 times | **🔴 Leaks 100 ZOOM_UPDATED IPC listeners** |
-| Load player with AsideFilm 100 times | **🔴 Leaks 100 COMP_MULTI_PLAYER_PLAYNEXT listeners** |
+| Scenario                             | Result                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------- |
+| Open/close player 100 times          | **🔴 Leaks 300 IPC listeners** (3 per open, never removed)                |
+| Switch IPTV sources 100 times        | **🟡 Stale queue tasks** may update wrong data; emitter off/on is correct |
+| Type in search 100 keystrokes        | **🟡 Throttle prevents most races**, but stale results can overwrite      |
+| Open/close settings 100 times        | **🔴 Leaks 100 ZOOM_UPDATED IPC listeners**                               |
+| Load player with AsideFilm 100 times | **🔴 Leaks 100 COMP_MULTI_PLAYER_PLAYNEXT listeners**                     |
 
 ---
 

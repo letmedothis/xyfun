@@ -19,4 +19,4 @@ app.use(store);
 app.use(router);
 app.use(i18n);
 
-app.mount('#app').$nextTick(window.removeLoading);
+app.mount('#app');

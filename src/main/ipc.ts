@@ -49,7 +49,7 @@ import { WINDOW_NAME } from '@shared/config/window';
 import type { ILang } from '@shared/locales';
 import { isFile, isHttp, isObject, isPositiveFiniteNumber, isSecurityScheme } from '@shared/modules/validate';
 import type { ProxyConfig } from 'electron';
-import { BrowserWindow, ipcMain, shell, webContents } from 'electron';
+import { BrowserWindow, ipcMain as electronIpcMain, shell, webContents } from 'electron';
 
 const logger = loggerService.withContext(LOG_MODULE.APP_IPC);
 
@@ -76,6 +76,18 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
     }
 
     return false;
+  };
+
+  const ipcMain = {
+    handle(channel: string, listener: (...args: any[]) => unknown) {
+      electronIpcMain.handle(channel, (event, ...args) => {
+        if (!isTrustedSender(event)) {
+          logger.warn(`Rejected IPC request from an untrusted sender: ${channel}`);
+          return;
+        }
+        return listener(event, ...args);
+      });
+    },
   };
 
   const ALLOWED_FS_PATHS = [
@@ -356,11 +368,13 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   });
 
   // path
-  ipcMain.handle(IPC_CHANNEL.PATH_RESOLVE, (_, ...paths: string[]) => {
+  ipcMain.handle(IPC_CHANNEL.PATH_RESOLVE, (event, ...paths: string[]) => {
+    if (!isTrustedSender(event)) return '';
     return path.resolve(...paths);
   });
 
-  ipcMain.handle(IPC_CHANNEL.PATH_JOIN, (_, ...paths: string[]) => {
+  ipcMain.handle(IPC_CHANNEL.PATH_JOIN, (event, ...paths: string[]) => {
+    if (!isTrustedSender(event)) return '';
     return path.join(...paths);
   });
 

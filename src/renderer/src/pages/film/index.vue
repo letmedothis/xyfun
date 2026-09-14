@@ -204,7 +204,7 @@ import type { PopupVisibleChangeContext } from 'tdesign-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import InfiniteLoading from 'v3-infinite-loading';
 import type { StateHandler as ILoadStateHdandler } from 'v3-infinite-loading/lib/types';
-import { computed, onActivated, onMounted, ref } from 'vue';
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue';
 
 import {
   fetchCmsAction,
@@ -298,6 +298,15 @@ onActivated(() => {
   emitter.on(emitterChannel.SEARCH_FILM_RECOMMEND, onSearchRecommend);
 });
 
+onDeactivated(() => {
+  emitter.off(emitterChannel.REFRESH_FILM_CONFIG, reloadConfig);
+  emitter.off(emitterChannel.SEARCH_FILM_RECOMMEND, onSearchRecommend);
+});
+
+onUnmounted(() => {
+  removeAllCanceller();
+});
+
 const addCanceler = (id: string, sigle: AbortController) => {
   removeCanceler(id);
   if (!signalCancelers.has(id)) {
@@ -311,6 +320,10 @@ const removeCanceler = (id: string) => {
     if (cancel) cancel.abort();
     signalCancelers.delete(id);
   }
+};
+
+const releaseCanceler = (id: string, cancel: AbortController) => {
+  if (signalCancelers.get(id) === cancel) signalCancelers.delete(id);
 };
 
 const removeAllCanceller = () => {
@@ -395,7 +408,7 @@ const getCmsHome = async (source: IModels['site']): Promise<number> => {
   addCanceler(tag, cancel);
 
   const resp = await fetchCmsHome({ uuid: source.id, signal: cancel.signal }).finally(() => {
-    removeCanceler(tag);
+    releaseCanceler(tag, cancel);
   });
 
   if (isArray(resp.class) && !isArrayEmpty(resp.class)) {
@@ -433,7 +446,7 @@ const getCmsCategory = async (source: IModels['site']): Promise<number> => {
     extend: JSON.stringify(f),
     signal: cancel.signal,
   }).finally(() => {
-    removeCanceler(tag);
+    releaseCanceler(tag, cancel);
   });
 
   if (isArray(resp.list) && !isArrayEmpty(resp.list)) {
@@ -458,7 +471,7 @@ const getCmsSearch = async (source: IModels['site']): Promise<number> => {
     page: pageIndex,
     signal: cancel.signal,
   }).finally(() => {
-    removeCanceler(tag);
+    releaseCanceler(tag, cancel);
   });
 
   if (isArray(resp.list) && !isArrayEmpty(resp.list)) {
@@ -590,7 +603,7 @@ const playWithInternalPlayer = async (item: ICmsInfo, active: IModels['site']) =
     },
   });
 
-  window.electron.ipcRenderer.invoke(IPC_CHANNEL.WINDOW_PLAYER);
+  await window.electron.ipcRenderer.invoke(IPC_CHANNEL.WINDOW_PLAYER);
 };
 
 const playEvent = async (item) => {

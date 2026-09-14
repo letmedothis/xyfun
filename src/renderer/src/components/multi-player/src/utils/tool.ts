@@ -188,6 +188,8 @@ const mediaUtils = (() => {
             url,
             method,
             responseType: 'arraybuffer',
+            // A server may ignore Range; never buffer a media payload just to detect its type.
+            maxContentLength: 64 * 1024,
             headers: {
               ...convertWebToElectron(headers),
               ...(method === 'GET' ? { Range: 'bytes=0-16' } : {}), // 8/12/16

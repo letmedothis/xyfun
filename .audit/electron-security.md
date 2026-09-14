@@ -8,21 +8,22 @@
 
 ## Summary
 
-| ID | Title | Severity | Category |
-|----|-------|----------|----------|
-| [ELECT-001] | Arbitrary File Read via IPC | P1 | Arbitrary File Access |
-| [ELECT-002] | Arbitrary File Write via IPC | P1 | Arbitrary File Access |
-| [ELECT-003] | Arbitrary File/Directory Deletion via IPC | P1 | Arbitrary File Access |
-| [ELECT-004] | Arbitrary Process Execution via CALL_PLAYER | P1 | RCE |
-| [ELECT-005] | Arbitrary File Open via shell.openPath | P2 | RCE / File Access |
-| [ELECT-006] | Shell Injection in tgz Module | P2 | Shell Injection |
-| [ELECT-007] | No Content Security Policy (CSP) | P2 | Defense-in-Depth |
-| [ELECT-008] | WINDOW_DESTROY IPC Lacks Sender Validation | P2 | IPC Authorization |
-| [ELECT-009] | FS IPC Handlers Lack Path Sandboxing | P1 | Arbitrary File Access |
+| ID          | Title                                       | Severity | Category              |
+| ----------- | ------------------------------------------- | -------- | --------------------- |
+| [ELECT-001] | Arbitrary File Read via IPC                 | P1       | Arbitrary File Access |
+| [ELECT-002] | Arbitrary File Write via IPC                | P1       | Arbitrary File Access |
+| [ELECT-003] | Arbitrary File/Directory Deletion via IPC   | P1       | Arbitrary File Access |
+| [ELECT-004] | Arbitrary Process Execution via CALL_PLAYER | P1       | RCE                   |
+| [ELECT-005] | Arbitrary File Open via shell.openPath      | P2       | RCE / File Access     |
+| [ELECT-006] | Shell Injection in tgz Module               | P2       | Shell Injection       |
+| [ELECT-007] | No Content Security Policy (CSP)            | P2       | Defense-in-Depth      |
+| [ELECT-008] | WINDOW_DESTROY IPC Lacks Sender Validation  | P2       | IPC Authorization     |
+| [ELECT-009] | FS IPC Handlers Lack Path Sandboxing        | P1       | Arbitrary File Access |
 
 ---
 
 ### [ELECT-001] Arbitrary File Read via IPC
+
 - **Severity**: P1
 - **Category**: Arbitrary File Access
 - **Confidence**: HIGH
@@ -45,6 +46,7 @@
 ---
 
 ### [ELECT-002] Arbitrary File Write via IPC
+
 - **Severity**: P1
 - **Category**: Arbitrary File Access
 - **Confidence**: HIGH
@@ -70,6 +72,7 @@
 ---
 
 ### [ELECT-003] Arbitrary File/Directory Deletion via IPC
+
 - **Severity**: P1
 - **Category**: Arbitrary File Access
 - **Confidence**: HIGH
@@ -92,11 +95,13 @@
 ---
 
 ### [ELECT-004] Arbitrary Process Execution via CALL_PLAYER
+
 - **Severity**: P1
 - **Category**: RCE
 - **Confidence**: HIGH
 - **File**: `src/main/ipc.ts:156-187`
 - **Code**:
+
   ```typescript
   ipcMain.handle(IPC_CHANNEL.CALL_PLAYER, async (_, app: string, url: string) => {
     if (!url || !app) return false;
@@ -111,9 +116,12 @@
         const child = spawn(command, args, { stdio: 'ignore', windowsHide: true });
         // ...
       });
-    } catch (error) { /* ... */ }
+    } catch (error) {
+      /* ... */
+    }
   });
   ```
+
 - **Trigger**: Renderer calls `window.electron.ipcRenderer.invoke('business:call-player', '/bin/bash', 'http://example.com')` — this spawns `/bin/bash` with `http://example.com` as an argument. On Linux/Windows, `command = executable = '/bin/bash'` and `args = ['http://example.com']`.
 - **Call Chain**: `renderer → ipcRenderer.invoke('business:call-player', app, url) → spawn(command, args)`
 - **Root Cause**: The `app` parameter is user-controlled and used directly as the executable path. The only validation is that `url` must be HTTP or exist on disk. There is **no validation** that `app` is a legitimate media player. On non-macOS platforms, `app` becomes the `command` passed to `spawn()`.
@@ -129,6 +137,7 @@
 ---
 
 ### [ELECT-005] Arbitrary File Open via shell.openPath
+
 - **Severity**: P2
 - **Category**: RCE / File Access
 - **Confidence**: HIGH
@@ -150,6 +159,7 @@
 ---
 
 ### [ELECT-006] Shell Injection in tgz Module
+
 - **Severity**: P2
 - **Category**: Shell Injection
 - **Confidence**: MEDIUM
@@ -171,6 +181,7 @@
 ---
 
 ### [ELECT-007] No Content Security Policy (CSP)
+
 - **Severity**: P2
 - **Category**: Defense-in-Depth
 - **Confidence**: HIGH
@@ -196,6 +207,7 @@
 ---
 
 ### [ELECT-008] WINDOW_DESTROY IPC Lacks Sender Validation
+
 - **Severity**: P2
 - **Category**: IPC Authorization
 - **Confidence**: HIGH
@@ -219,6 +231,7 @@
 ---
 
 ### [ELECT-009] FS IPC Handlers Lack Path Sandboxing
+
 - **Severity**: P1
 - **Category**: Arbitrary File Access
 - **Confidence**: HIGH
@@ -259,12 +272,12 @@ These areas are well-secured:
 
 ## Recommendations Summary
 
-| Priority | Action | Files |
-|----------|--------|-------|
-| **P0** | Add path sandboxing to all FS IPC handlers | `src/main/ipc.ts` |
-| **P0** | Add player executable whitelist to CALL_PLAYER | `src/main/ipc.ts` |
-| **P1** | Add `isTrustedSender()` to OPEN_PATH handler | `src/main/ipc.ts` |
-| **P1** | Fix shell injection in tgz module | `src/shared/modules/zip/tgz.ts` |
-| **P2** | Add CSP headers to renderer responses | `src/main/services/WindowService.ts` |
-| **P2** | Add sender validation to WINDOW_DESTROY/HIDE/SHOW | `src/main/ipc.ts` |
-| **P2** | Re-enable ELECTRON_DISABLE_SECURITY_WARNINGS for dev only | `src/main/index.ts:49` |
+| Priority | Action                                                    | Files                                |
+| -------- | --------------------------------------------------------- | ------------------------------------ |
+| **P0**   | Add path sandboxing to all FS IPC handlers                | `src/main/ipc.ts`                    |
+| **P0**   | Add player executable whitelist to CALL_PLAYER            | `src/main/ipc.ts`                    |
+| **P1**   | Add `isTrustedSender()` to OPEN_PATH handler              | `src/main/ipc.ts`                    |
+| **P1**   | Fix shell injection in tgz module                         | `src/shared/modules/zip/tgz.ts`      |
+| **P2**   | Add CSP headers to renderer responses                     | `src/main/services/WindowService.ts` |
+| **P2**   | Add sender validation to WINDOW_DESTROY/HIDE/SHOW         | `src/main/ipc.ts`                    |
+| **P2**   | Re-enable ELECTRON_DISABLE_SECURITY_WARNINGS for dev only | `src/main/index.ts:49`               |

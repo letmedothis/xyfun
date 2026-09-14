@@ -29,8 +29,10 @@ const MultiPlayer = defineComponent({
   setup(_props: any, ctx: SetupContext) {
     const adapter = shallowRef<ISinglePlayerAdapter | null>(null);
     const currentAdapterType = ref<IMultiPlayerType | null>(null);
+    const currentDecoderType = ref<IDecoderType | null>(null);
     const mseRef = ref<HTMLDivElement | null>(null);
     const selfRef = ref<HTMLDivElement | null>(null);
+    let createVersion = 0;
 
     const barrage = (comments: IBarrage[], id: string) => adapter.value?.barrage?.(toRaw(comments), id);
 
@@ -40,6 +42,8 @@ const MultiPlayer = defineComponent({
       mode?: IMultiPlayerCreateMode,
     ) => {
       if ((!rawOptions.url && !rawOptions.quality?.length) || !rawOptions.container) return;
+      const version = ++createVersion;
+      const isCurrentCreate = () => version === createVersion;
       const url = Array.isArray(rawOptions.quality)
         ? (rawOptions.quality.find((item) => item.select || item.url === rawOptions.url)?.url ??
           rawOptions.quality[0]?.url ??
@@ -68,7 +72,7 @@ const MultiPlayer = defineComponent({
 
       if (!options.type || options.type === 'auto') {
         const detected = await mediaUtils.checkMediaType(options.url, options.headers);
-        if (!detected) return;
+        if (!detected || !isCurrentCreate()) return;
         options.type = detected as IDecoderType;
       }
       options.type = mediaUtils.getDecoderFromExtension(options.type);
@@ -89,8 +93,13 @@ const MultiPlayer = defineComponent({
 
       if (playerMode === 'switch') {
         try {
-          if (adapter.value && currentAdapterType.value === playerType) {
+          const canSwitch =
+            adapter.value &&
+            currentAdapterType.value === playerType &&
+            (playerType !== 'artplayer' || currentDecoderType.value === options.type);
+          if (canSwitch) {
             await adapter.value.switchUrl(toRaw(options));
+            if (!isCurrentCreate()) return;
             return;
           }
         } catch {}
@@ -98,25 +107,35 @@ const MultiPlayer = defineComponent({
 
       currentAdapterType.value = playerType;
 
-      await destroy();
+      await destroy(false);
+      if (!isCurrentCreate()) return;
 
       mseRef.value && (mseRef.value.id = rawOptions.container);
 
       const AdapterCtor = adapterRelation[playerType];
       const SingleAdapter = singleton(AdapterCtor);
 
-      adapter.value = new SingleAdapter();
-      await adapter.value!.create(toRaw(options));
+      const nextAdapter = new SingleAdapter();
+      adapter.value = nextAdapter;
+      await nextAdapter.create(toRaw(options));
+      if (!isCurrentCreate()) {
+        if (adapter.value === nextAdapter) await destroy(false);
+        else await nextAdapter.destroy();
+        return;
+      }
+      currentDecoderType.value = options.type;
       onTimeUpdate();
     };
 
-    const destroy = async () => {
+    const destroy = async (invalidateCreate = true) => {
+      if (invalidateCreate) createVersion += 1;
       if (!adapter.value) return;
 
       try {
         await adapter.value.destroy();
       } catch {}
       adapter.value = null;
+      currentDecoderType.value = null;
 
       if (mseRef.value) {
         mseRef.value.className = 'multi-player__mse';

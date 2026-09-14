@@ -1,33 +1,34 @@
-// import process from 'node:process';
-
 import { electronAPI } from '@electron-toolkit/preload';
 import { contextBridge } from 'electron';
-
-import { domReady } from './utils/dom';
-import { useLoading } from './utils/loading';
-
-const { appendLoading, removeLoading } = useLoading();
-
-domReady().then(appendLoading);
 
 // Custom APIs for renderer
 const api = {};
 
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
+// Expose only the necessary subset of electronAPI
+const exposedElectronAPI = {
+  ipcRenderer: {
+    invoke: electronAPI.ipcRenderer.invoke,
+    send: electronAPI.ipcRenderer.send,
+    on: electronAPI.ipcRenderer.on,
+    removeListener: electronAPI.ipcRenderer.removeListener,
+    removeAllListeners: electronAPI.ipcRenderer.removeAllListeners,
+  },
+  process: {
+    env: electronAPI.process.env,
+    platform: electronAPI.process.platform,
+    versions: electronAPI.process.versions,
+  },
+};
+
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI);
+    contextBridge.exposeInMainWorld('electron', exposedElectronAPI);
     contextBridge.exposeInMainWorld('api', api);
-    contextBridge.exposeInMainWorld('removeLoading', removeLoading);
   } catch (error) {
     console.error('[Preload]Failed to expose APIs:', error as Error);
   }
 } else {
-  window.electron = electronAPI;
-  window.api = api;
-  window.removeLoading = removeLoading;
+  throw new Error('contextIsolation must be enabled for security');
 }
 
 export type WindowApiType = typeof api;

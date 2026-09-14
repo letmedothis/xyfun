@@ -734,7 +734,7 @@ export class WindowService {
           contextIsolation: true,
           nodeIntegration: false,
           preload: join(import.meta.dirname, '../preload/index.js'),
-          sandbox: false,
+          sandbox: true,
           spellcheck: false,
           webSecurity: true,
           zoomFactor: configManager.zoom,
