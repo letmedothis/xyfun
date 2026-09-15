@@ -23,13 +23,18 @@ export function registerProtocolClient(app: Electron.App) {
 }
 
 export function handleProtocolUrl(url: string) {
-  // if (!url) return;
-  // Process the URL that was used to open the app
-  // The url will be in the format: zy://data?param1=value1&param2=value2
+  let urlObj: URL;
+  try {
+    urlObj = new URL(url);
+  } catch {
+    logger.warn(`Ignored invalid protocol URL: ${url}`);
+    return;
+  }
 
-  // Parse the URL and extract parameters
-  const urlObj = new URL(url);
-  // const params = new URLSearchParams(urlObj.search);
+  if (urlObj.protocol !== `${APP_NAME_ALIAS}:`) {
+    logger.warn(`Ignored unexpected protocol URL: ${url}`);
+    return;
+  }
 
   switch (urlObj.hostname.toLowerCase()) {
     case 'sub': {

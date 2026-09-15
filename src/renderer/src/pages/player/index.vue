@@ -170,9 +170,7 @@ const onTimeUpdate = (time: IVideoProcess) => (processFormData.value = time);
 const updateConf = (item: IStorePlayer) => storePlayer.updateConfig(item);
 
 const updateBarrage = (item: IBarrageResult) => {
-  setTimeout(() => {
-    playerRef.value?.barrage(item.list, item.id);
-  }, 0);
+  playerRef.value?.barrage(item.list, item.id);
 };
 
 const handlePlayerCreate = async (

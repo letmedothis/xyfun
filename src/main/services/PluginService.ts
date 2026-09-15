@@ -340,7 +340,7 @@ class PluginService {
         // if (pluginInfo.isActive) return true;
 
         if (pluginInfo.main?.endsWith('.js')) {
-          const poolKey = pluginInfo.name!;
+          const poolKey = pluginInfo.id;
           let pool = this.syncModules.get(poolKey);
           if (pool) continue;
 
@@ -421,7 +421,7 @@ class PluginService {
         // if (!pluginInfo.isActive) continue;
 
         if (pluginInfo.main?.endsWith('.js')) {
-          const poolKey = pluginInfo.name!;
+          const poolKey = pluginInfo.id;
           const pool = this.syncModules.get(poolKey);
           if (!pool) continue;
 

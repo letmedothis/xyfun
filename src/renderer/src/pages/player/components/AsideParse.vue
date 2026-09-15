@@ -103,7 +103,7 @@ import { DownloadIcon, HeartFilledIcon, HeartIcon, MoreIcon, SettingIcon, Share1
 import type { ListInstanceFunctions } from 'tdesign-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { PropType } from 'vue';
-import { computed, onMounted, ref, toRaw, useTemplateRef, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, toRaw, useTemplateRef, watch } from 'vue';
 
 import { fetchRecBarrage } from '@/api/film';
 import { fetchParse } from '@/api/parse';
@@ -259,7 +259,12 @@ watch(
 //   () => handleScroll(),
 // );
 
-onMounted(() => setup());
+onMounted(() => void setup());
+
+onUnmounted(() => {
+  playRequestVersion++;
+  throttleSaveHistory.cancel();
+});
 
 const handleSwitchParseItem = async (item: IModels['analyze']) => {
   resetHistoryData();
@@ -300,9 +305,12 @@ const handleSharePopup = () => {
   active.value.share = true;
 };
 
-const callBarrage = async (item: { url: string }) => {
+let playRequestVersion = 0;
+
+const callBarrage = async (item: { url: string }, requestVersion: number) => {
   try {
     const res = await fetchRecBarrage({ id: item.url });
+    if (requestVersion !== playRequestVersion) return;
     if (!isArray(res.list) || isArrayEmpty(res.list)) return;
 
     emits('barrage', {
@@ -340,25 +348,36 @@ const onSettingChange = (item: typeof settingFormData.value) => {
 };
 
 const callPlay = async (item: { url: string }) => {
+  const requestVersion = ++playRequestVersion;
   MessagePlugin.info(t('pages.parse.message.info'));
 
-  const { active } = extraConf.value;
-  const resp = await fetchParse({ id: active.id, url: item.url });
+  try {
+    const { active } = extraConf.value;
+    const resp = await fetchParse({ id: active.id, url: item.url });
 
-  if (!isHttp(resp?.url)) {
+    if (requestVersion !== playRequestVersion) return;
+
+    if (!isHttp(resp?.url)) {
+      MessagePlugin.error(t('pages.parse.message.error'));
+      return;
+    }
+
+    videoData.value.url = resp.url;
+
+    await emits('create', {
+      url: resp.url,
+      headers: resp.headers,
+      startTime: videoData.value.watchTime,
+      skipAd: playerConf.value.skipAd,
+    });
+    if (requestVersion !== playRequestVersion) return;
+
+    void callBarrage(item, requestVersion);
+  } catch (error) {
+    if (requestVersion !== playRequestVersion) return;
+    console.error('[player][parse][callPlay][error]', error);
     MessagePlugin.error(t('pages.parse.message.error'));
-    return;
   }
-
-  videoData.value.url = resp.url;
-
-  await emits('create', {
-    url: resp.url,
-    headers: resp.headers,
-    startTime: videoData.value.watchTime,
-    skipAd: playerConf.value.skipAd,
-  });
-  callBarrage(item);
 };
 
 const timerUpdatePlayProcess = async (currentTime: number, duration: number) => {

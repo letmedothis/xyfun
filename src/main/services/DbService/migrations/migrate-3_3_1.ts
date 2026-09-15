@@ -129,6 +129,7 @@ const migrate = async (orm: IOrm, schemas: ISchemas): Promise<void> => {
 
   // Create indexes for faster queries
   await orm.run(sql`CREATE INDEX IF NOT EXISTS idx_analyze_key ON tbl_analyze(key);`);
+  await orm.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS uidx_history_identity ON tbl_history(type, relateId, videoId);`);
   await orm.run(sql`CREATE INDEX IF NOT EXISTS idx_iptv_key ON tbl_iptv(key);`);
   await orm.run(sql`CREATE INDEX IF NOT EXISTS idx_setting_key ON tbl_setting(key);`);
   await orm.run(sql`CREATE INDEX IF NOT EXISTS idx_site_key ON tbl_site(key);`);

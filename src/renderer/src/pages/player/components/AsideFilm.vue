@@ -462,6 +462,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  playRequestVersion++;
+  throttleSaveHistory.cancel();
   emitter.off(emitterChannel.COMP_MULTI_PLAYER_PLAYNEXT, handlePlayNext);
 });
 
@@ -475,6 +477,8 @@ const defaultPreloadConfig = () => {
     mediaType: '',
   };
 };
+
+let playRequestVersion = 0;
 
 const handleSwitchSeriesTab = (val: string) => {
   active.value.nav = val;
@@ -854,9 +858,10 @@ const getDirectPlayUrl = async (
   throw new Error('No Play URL');
 };
 
-const callBarrage = async (item: ICmsInfoEpisode) => {
+const callBarrage = async (item: ICmsInfoEpisode, requestVersion: number) => {
   try {
     const res = await fetchRecBarrage({ id: item.link });
+    if (requestVersion !== playRequestVersion) return;
     if (!isArray(res.list) || isArrayEmpty(res.list)) return;
 
     emits('barrage', {
@@ -867,6 +872,7 @@ const callBarrage = async (item: ICmsInfoEpisode) => {
 };
 
 const callPlay = async (item: ICmsInfoEpisode) => {
+  const requestVersion = ++playRequestVersion;
   try {
     const isPreload = preload.value.status === 'ready' && preload.value.id === item.link;
 
@@ -878,6 +884,8 @@ const callPlay = async (item: ICmsInfoEpisode) => {
           mediaType: preload.value.mediaType,
         }
       : await getDirectPlayUrl(item);
+
+    if (requestVersion !== playRequestVersion) return;
 
     videoData.value.url = res.url;
 
@@ -892,10 +900,13 @@ const callPlay = async (item: ICmsInfoEpisode) => {
       next: !getEpisodePlayState()?.isLast,
     });
 
-    callBarrage(item);
+    if (requestVersion !== playRequestVersion) return;
+
+    void callBarrage(item, requestVersion);
 
     active.value.watch = true;
   } catch (error) {
+    if (requestVersion !== playRequestVersion) return;
     console.error(`[player][callPlay][error]`, error);
 
     const msg = (error as Error).message;
@@ -907,7 +918,7 @@ const callPlay = async (item: ICmsInfoEpisode) => {
       MessagePlugin.error(`${t('common.error')}: ${msg}`);
     }
   } finally {
-    defaultPreloadConfig();
+    if (requestVersion === playRequestVersion) defaultPreloadConfig();
   }
 };
 

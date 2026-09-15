@@ -56,7 +56,14 @@ export default {
 
   // Adds a new record and returns the inserted row
   async add(orm: IOrm, schemas: ISchemas, doc: IModels['history']) {
-    return await orm.insert(schemas.history).values(doc).returning();
+    return await orm
+      .insert(schemas.history)
+      .values(doc)
+      .onConflictDoUpdate({
+        target: [schemas.history.type, schemas.history.relateId, schemas.history.videoId],
+        set: { ...doc, updatedAt: Date.now() },
+      })
+      .returning();
   },
 
   // Removes records by ID
