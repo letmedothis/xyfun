@@ -19,7 +19,7 @@ import fastify from 'fastify';
 import JSON5 from 'json5';
 import qs from 'qs';
 
-import { API_AUTH_HEADER, API_AUTH_TOKEN } from './apiAuth';
+import { API_AUTH_HEADER, API_AUTH_TOKEN, isApiAuthExempt } from './apiAuth';
 import routeModules from './routes';
 import { ResponseErrorSchema, ResponseRedirectSchema, ResponseSuccessSchema } from './schemas/base';
 
@@ -145,7 +145,8 @@ export class FastifyService {
 
   private registerHooks(): void {
     this.server!.addHook('onRequest', async (req, reply) => {
-      if (req.method !== 'OPTIONS' && req.headers[API_AUTH_HEADER] !== API_AUTH_TOKEN) {
+      const isAuthenticated = req.method === 'OPTIONS' || req.headers[API_AUTH_HEADER] === API_AUTH_TOKEN;
+      if (!isAuthenticated && !isApiAuthExempt(req.method, req.url)) {
         return reply.code(401).send({ code: -1, msg: 'Unauthorized', data: null });
       }
 
