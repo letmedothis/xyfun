@@ -1,6 +1,6 @@
 import { PORT, PROXY_API } from '@shared/config/env';
 
-export const getPort = (): string => PORT;
+export const getPort = (): string => String(PORT);
 export const getUrl = (_local: boolean): string => PROXY_API;
 export const getProxy = (local: boolean): string => `${getUrl(local)}?do=js`;
 

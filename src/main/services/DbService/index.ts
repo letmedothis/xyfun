@@ -20,7 +20,6 @@ import semver from 'semver';
 
 import operater from './crud';
 import { initMigrate, latestVersion, updateMigrate } from './migrations';
-import type { Transaction } from './schemas';
 import { schemas, tableNames } from './schemas';
 
 const logger = loggerService.withContext(LOG_MODULE.DATABASE);
@@ -217,7 +216,9 @@ export class DbService {
         if (!(name in schemas)) continue;
 
         const table = schemas[name as ITableName];
-        const transaction = tx as Transaction;
+        // The table lookup above yields a union of all table types, which drizzle's
+        // per-table overloads cannot resolve; keep the untyped cast to call through it.
+        const transaction = tx as any;
         await transaction.delete(table);
 
         if (name === 'setting') {
@@ -239,7 +240,7 @@ export class DbService {
     if (!this.orm) throw new Error('Database is not initialized');
 
     await this.orm.transaction(async (tx) => {
-      const transaction = tx as Transaction;
+      const transaction = tx as any;
       for (const [name, value] of Object.entries(data)) {
         if (!(name in schemas) || name === 'setting') continue;
         if (!Array.isArray(value)) throw new TypeError(`Invalid ${name} data`);

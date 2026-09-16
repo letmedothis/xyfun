@@ -7,6 +7,7 @@ import { ArtPlayerAdapter, XgPlayerAdapter } from './core';
 import type {
   IBarrage,
   IDecoderType,
+  IDecoderWithAutoType,
   IMultiPlayerAdapter,
   IMultiPlayerCreateMode,
   IMultiPlayerOptions,
@@ -29,7 +30,7 @@ const MultiPlayer = defineComponent({
   setup(_props: any, ctx: SetupContext) {
     const adapter = shallowRef<ISinglePlayerAdapter | null>(null);
     const currentAdapterType = ref<IMultiPlayerType | null>(null);
-    const currentDecoderType = ref<IDecoderType | null>(null);
+    const currentDecoderType = ref<IDecoderWithAutoType | null>(null);
     const mseRef = ref<HTMLDivElement | null>(null);
     const selfRef = ref<HTMLDivElement | null>(null);
     let createVersion = 0;
@@ -93,12 +94,13 @@ const MultiPlayer = defineComponent({
 
       if (playerMode === 'switch') {
         try {
+          const activeAdapter = adapter.value;
           const canSwitch =
-            adapter.value &&
+            activeAdapter &&
             currentAdapterType.value === playerType &&
             (playerType !== 'artplayer' || currentDecoderType.value === options.type);
           if (canSwitch) {
-            await adapter.value.switchUrl(toRaw(options));
+            await activeAdapter.switchUrl(toRaw(options));
             if (!isCurrentCreate()) return;
             return;
           }

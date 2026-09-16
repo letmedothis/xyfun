@@ -129,11 +129,6 @@ jobs:
             platform: win
             arch: x64
             build_command: pnpm build:win:x64
-          - os: windows-11-arm
-            name: win-arm64
-            platform: win
-            arch: arm64
-            build_command: pnpm build:win:arm64
           - os: ubuntu-latest
             name: linux-x64
             platform: linux
@@ -223,11 +218,6 @@ jobs:
             win-x64)
               copy_first "*-x64-setup.exe" "${PREFIX}-win-x64-setup.exe"
               copy_first "*-x64-portable.exe" "${PREFIX}-win-x64-portable.exe"
-              ;;
-
-            win-arm64)
-              copy_first "*-arm64-setup.exe" "${PREFIX}-win-arm64-setup.exe"
-              copy_first "*-arm64-portable.exe" "${PREFIX}-win-arm64-portable.exe"
               ;;
 
             mac-arm64)

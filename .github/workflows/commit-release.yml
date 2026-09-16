@@ -61,10 +61,6 @@ jobs:
             platform: win
             arch: x64
             build_command: pnpm build:win:x64
-          - os: windows-11-arm
-            platform: win
-            arch: arm64
-            build_command: pnpm build:win:arm64
           - os: ubuntu-latest
             platform: linux
             arch: x64
@@ -201,7 +197,7 @@ jobs:
             echo "- 提交：\`$RELEASE_SHA\`"
             echo "- 版本：\`v$BUILD_TIMESTAMP\`"
             echo "- 构建时间：\`$BUILD_TIMESTAMP\`（Asia/Shanghai）"
-            echo "- 平台：Windows、macOS、Linux（x64/arm64）"
+            echo "- 平台：Windows（x64）、macOS/Linux（x64/arm64）"
           } > release-notes.md
 
       - name: Publish GitHub Release

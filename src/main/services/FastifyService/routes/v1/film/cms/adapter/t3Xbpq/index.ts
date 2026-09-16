@@ -464,8 +464,12 @@ class T3XbpqAdapter {
       res = data;
     }
     try {
-      res = JSON5.parse(res);
-      this.XBPQRule = Object.assign(this.XBPQRule, res);
+      // The remote ext request may return an empty body, in which case there is
+      // nothing to parse and the rule built from the local ext stays as-is.
+      if (res) {
+        res = JSON5.parse(res);
+        this.XBPQRule = Object.assign(this.XBPQRule, res);
+      }
     } catch {}
 
     this.rule.headers = {};
