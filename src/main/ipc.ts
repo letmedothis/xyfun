@@ -36,6 +36,7 @@ import {
   getHomePath,
   getSystemPath,
   getUserPath,
+  HOME_BIN_PATH,
 } from '@main/utils/path';
 import { execAsync } from '@main/utils/shell';
 import { arch, generateUserAgent, isLinux, isMacOS, isPortable, isWindows, platform } from '@main/utils/systemInfo';
@@ -97,10 +98,25 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
     APP_PLUGIN_PATH,
     APP_TEMP_PATH,
     APP_LOG_PATH,
+    HOME_BIN_PATH,
   ];
 
+  // Paths the user explicitly chose through a native dialog. The FS handlers
+  // also back user-selected files outside the app directories, so those picks
+  // are granted for the remainder of the session.
+  const userGrantedPaths = new Set<string>();
+
+  const grantUserPath = (filePath?: string | null): void => {
+    if (typeof filePath !== 'string' || filePath.length === 0) return;
+    userGrantedPaths.add(path.resolve(filePath));
+  };
+
   const isPathAllowed = (filePath: string): boolean => {
-    return ALLOWED_FS_PATHS.some((allowed) => resolveWithinPath(allowed, filePath) !== null);
+    if (ALLOWED_FS_PATHS.some((allowed) => resolveWithinPath(allowed, filePath) !== null)) return true;
+    for (const granted of userGrantedPaths) {
+      if (resolveWithinPath(granted, filePath) !== null) return true;
+    }
+    return false;
   };
 
   const getOwnedWebview = (event: Electron.IpcMainInvokeEvent, webviewId: number): Electron.WebContents | null => {
@@ -280,26 +296,36 @@ export function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   });
 
   // file
-  ipcMain.handle(IPC_CHANNEL.FILE_SELECT_FOLDER_DIALOG, (_, options?: Electron.OpenDialogOptions) => {
-    return fileStorage.selectFolderDialog(options);
+  ipcMain.handle(IPC_CHANNEL.FILE_SELECT_FOLDER_DIALOG, async (_, options?: Electron.OpenDialogOptions) => {
+    const paths = await fileStorage.selectFolderDialog(options);
+    paths.forEach(grantUserPath);
+    return paths;
   });
 
-  ipcMain.handle(IPC_CHANNEL.FILE_SELECT_FILE_DIALOG, (_, options?: Electron.OpenDialogOptions) => {
-    return fileStorage.selectFileDialog(options);
+  ipcMain.handle(IPC_CHANNEL.FILE_SELECT_FILE_DIALOG, async (_, options?: Electron.OpenDialogOptions) => {
+    const paths = await fileStorage.selectFileDialog(options);
+    paths.forEach(grantUserPath);
+    return paths;
   });
 
-  ipcMain.handle(IPC_CHANNEL.FILE_SAVE_FILE_DIALOG, (_, options?: Electron.SaveDialogOptions) => {
-    return fileStorage.saveFileDialog(options);
+  ipcMain.handle(IPC_CHANNEL.FILE_SAVE_FILE_DIALOG, async (_, options?: Electron.SaveDialogOptions) => {
+    const filePath = await fileStorage.saveFileDialog(options);
+    grantUserPath(filePath);
+    return filePath;
   });
 
-  ipcMain.handle(IPC_CHANNEL.FILE_SELECT_FOLDER_READ, (_, options?: Electron.OpenDialogOptions) => {
-    return fileStorage.selectFileRead(options);
+  ipcMain.handle(IPC_CHANNEL.FILE_SELECT_FOLDER_READ, async (_, options?: Electron.OpenDialogOptions) => {
+    const result = await fileStorage.selectFileRead(options);
+    grantUserPath(result.path);
+    return result;
   });
 
   ipcMain.handle(
     IPC_CHANNEL.FILE_SELECT_FILE_WRITE,
-    (_, content: string | Buffer, options?: Electron.SaveDialogOptions) => {
-      return fileStorage.selectFolderWrite(content, options);
+    async (_, content: string | Buffer, options?: Electron.SaveDialogOptions) => {
+      const result = await fileStorage.selectFolderWrite(content, options);
+      grantUserPath(result.path);
+      return result;
     },
   );
 
