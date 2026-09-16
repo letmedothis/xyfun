@@ -21,6 +21,7 @@ venv
 !.yarn/versions
 .yarn-cache
 .pnpm-store/*
+.pnpm-sandbox/
 
 # Python
 uv.lock
