@@ -39,7 +39,7 @@ describe('database upgrade compatibility', () => {
   afterEach(async () => {
     await service.close();
     client.close();
-    await rm(paths.database, { recursive: true, force: true });
+    await rm(paths.database, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   const seed = async (version = '3.4.1') => {
