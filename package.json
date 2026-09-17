@@ -50,6 +50,7 @@
     "build:linux:arm64": "dotenv npm run build && electron-builder --linux --arm64",
     "build:linux:x64": "dotenv npm run build && electron-builder --linux --x64",
     "test": "vitest run --silent",
+    "test:upgrade": "vitest run --project upgrade",
     "test:main": "vitest run --project main",
     "test:renderer": "vitest run --project renderer",
     "test:shared": "vitest run --project shared",
