@@ -46,42 +46,6 @@ index 8527e6190ea92dc2c832049bf2c8862e81f36c2b..be09d2dfd44b837ee98115b5d19bb653
          }
          return this.#db;
      }
-@@ -246,14 +262,31 @@ class Sqlite3Transaction {
-         }
-         this.#checkNotClosed();
--        executeStmt(this.#database, "ROLLBACK", this.#intMode);
-+        try {
-+            executeStmt(this.#database, "ROLLBACK", this.#intMode);
-+        }
-+        finally {
-+            this.#database.close();
-+        }
-     }
-     async commit() {
-         this.#checkNotClosed();
--        executeStmt(this.#database, "COMMIT", this.#intMode);
-+        try {
-+            executeStmt(this.#database, "COMMIT", this.#intMode);
-+        }
-+        finally {
-+            this.#database.close();
-+        }
-     }
-     close() {
--        if (this.#database.inTransaction) {
--            executeStmt(this.#database, "ROLLBACK", this.#intMode);
-+        try {
-+            if (this.#database.inTransaction) {
-+                executeStmt(this.#database, "ROLLBACK", this.#intMode);
-+            }
-+        }
-+        finally {
-+            if (this.#database.open) {
-+                this.#database.close();
-+            }
-         }
-     }
-     get closed() {
 diff --git a/lib-esm/node.d.ts b/lib-esm/node.d.ts
 index 3e82e6b41e65881f5e48b7dd221b0046f47862d8..76af5c20d63990e993f701ace7a696bcef77a495 100644
 --- a/lib-esm/node.d.ts
@@ -169,39 +133,3 @@ index d9a4f0136804059b31105e977eaeb953f521abdd..1ecdc599a26785489e163d2a9071ea13
          }
          return this.#db;
      }
-@@ -223,14 +239,31 @@ export class Sqlite3Transaction {
-         }
-         this.#checkNotClosed();
--        executeStmt(this.#database, "ROLLBACK", this.#intMode);
-+        try {
-+            executeStmt(this.#database, "ROLLBACK", this.#intMode);
-+        }
-+        finally {
-+            this.#database.close();
-+        }
-     }
-     async commit() {
-         this.#checkNotClosed();
--        executeStmt(this.#database, "COMMIT", this.#intMode);
-+        try {
-+            executeStmt(this.#database, "COMMIT", this.#intMode);
-+        }
-+        finally {
-+            this.#database.close();
-+        }
-     }
-     close() {
--        if (this.#database.inTransaction) {
--            executeStmt(this.#database, "ROLLBACK", this.#intMode);
-+        try {
-+            if (this.#database.inTransaction) {
-+                executeStmt(this.#database, "ROLLBACK", this.#intMode);
-+            }
-+        }
-+        finally {
-+            if (this.#database.open) {
-+                this.#database.close();
-+            }
-         }
-     }
-     get closed() {
