@@ -22,6 +22,18 @@ export default defineConfig({
           environment: 'node',
           setupFiles: ['tests/main.setup.ts'],
           include: ['src/main/**/*.{test,spec}.{ts,tsx}', 'src/main/**/__tests__/**/*.{test,spec}.{ts,tsx}'],
+          exclude: ['**/*.upgrade.test.ts'],
+        },
+      },
+      // Real SQLite files and filesystem; do not inherit main.setup.ts filesystem mocks.
+      {
+        extends: true,
+        resolve: { alias: mainConfig.resolve.alias },
+        test: {
+          name: 'upgrade',
+          environment: 'node',
+          setupFiles: [],
+          include: ['src/main/**/*.upgrade.test.ts'],
         },
       },
       // renderer

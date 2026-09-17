@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { mkdir, mkdtemp, open } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { createClient } from '@libsql/client';
@@ -6,14 +7,14 @@ import { loggerService } from '@logger';
 import type { IStoreKey } from '@main/services/ConfigManager';
 import { configManager, STORE_KEYS } from '@main/services/ConfigManager';
 import { ICloudStorage, WebdavStorage } from '@main/services/StorageService';
-import { APP_DATABASE_PATH } from '@main/utils/path';
+import { APP_DATABASE_BACKUP_PATH, APP_DATABASE_PATH } from '@main/utils/path';
 import { LOG_MODULE } from '@shared/config/logger';
 import type { ISetting, ISettingKey } from '@shared/config/tblSetting';
 import { isArrayEmpty, isObjectEmpty } from '@shared/modules/validate';
 import type { IClient, IConfig, IDbStore, IMigrations, IModels, IOrm, ITableName } from '@shared/types/db';
 import type { FSWatcher } from 'chokidar';
 import chokidar from 'chokidar';
-import { eq } from 'drizzle-orm';
+import { eq, getTableColumns, getTableName, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/libsql';
 import JSON5 from 'json5';
 import semver from 'semver';
@@ -254,17 +255,97 @@ export class DbService {
    * @returns string
    */
   private async getDbVersion(): Promise<string> {
-    if (!this.client || !this.orm) {
-      return '0.0.0';
+    if (!this.client) throw new Error('Database is not initialized');
+
+    const objects = await this.client.execute(
+      "SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'",
+    );
+    if (objects.rows.length === 0) return '0.0.0';
+    if (!objects.rows.some((row) => row.name === 'tbl_setting')) {
+      throw new Error('Existing database has no settings table; refusing to initialize it');
     }
 
+    // Only read fields that existed before timestamp columns were introduced.
+    const result = await this.client.execute("SELECT value FROM tbl_setting WHERE key = 'version'");
+    let version: string | null = null;
     try {
-      const dbRes = (await this.setting.getValue('version')) || '0.0.0';
-      const version = semver.valid(dbRes) || '0.0.0';
-      return version;
+      const value = JSON5.parse(String(result.rows[0]?.value));
+      if (typeof value?.data === 'string') version = semver.valid(value.data);
     } catch {
-      return '0.0.0';
+      // A missing or malformed version never means an empty database.
     }
+    if (result.rows.length !== 1 || !version || version === '0.0.0') {
+      throw new Error('Existing database has a missing or invalid version; data has not been reset');
+    }
+    return version;
+  }
+
+  private async validateSchema(orm: IOrm, version: string): Promise<void> {
+    for (const table of Object.values(schemas)) {
+      const name = getTableName(table);
+      const columns = await orm.all<{ name: string; type: string; pk: number }>(
+        sql`PRAGMA table_info(${sql.identifier(name)})`,
+      );
+      if (name === 'tbl_channel' && semver.lt(version, '3.4.7') && columns.some((item) => item.name === 'headers')) {
+        throw new Error('Database version predates existing channel headers; refusing to overwrite them');
+      }
+      for (const column of Object.values(getTableColumns(table))) {
+        // 3.4.7 adds the only column missing from the supported SQLite baseline.
+        if (name === 'tbl_channel' && column.name === 'headers' && semver.lt(version, '3.4.7')) continue;
+        const actual = columns.find((item) => item.name === column.name);
+        if (
+          !actual ||
+          actual.type.toLowerCase() !== column.getSQLType().toLowerCase() ||
+          (column.primary && actual.pk !== 1)
+        ) {
+          throw new Error(`Incompatible database schema: ${name}.${column.name}; data has not been reset`);
+        }
+      }
+    }
+
+    if (semver.gte(version, '3.4.9')) {
+      const indexes = await orm.all<{ name: string; unique: number; partial: number }>(
+        sql`PRAGMA index_list(tbl_history)`,
+      );
+      const index = indexes.find((item) => item.name === 'uidx_history_identity');
+      const columns = await orm.all<{ name: string }>(sql`PRAGMA index_info(uidx_history_identity)`);
+      const definition = await orm.all<{ sql: string }>(
+        sql`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'uidx_history_identity'`,
+      );
+      const normalized = definition[0]?.sql.replace(/[\s"`[\];]/g, '').toLowerCase();
+      if (
+        !index?.unique ||
+        !index.partial ||
+        columns.map((item) => item.name).join(',') !== 'type,relateId,videoId' ||
+        !normalized?.endsWith('wheretypein(1,2,3)')
+      ) {
+        throw new Error('Incompatible playback history index; data has not been reset');
+      }
+    }
+  }
+
+  private async backupBeforeMigration(version: string): Promise<void> {
+    await mkdir(APP_DATABASE_BACKUP_PATH, { recursive: true });
+    const directory = await mkdtemp(join(APP_DATABASE_BACKUP_PATH, `before-${version}-to-${latestVersion}-`));
+    const path = join(directory, 'data.db');
+    // VACUUM INTO includes committed WAL data and must run outside the migration transaction.
+    await this.client!.execute({ sql: 'VACUUM INTO ?', args: [path] });
+    const backup = createClient({ url: `file:${path}` });
+    try {
+      const check = await backup.execute('PRAGMA integrity_check');
+      if (check.rows.length !== 1 || check.rows[0].integrity_check !== 'ok') {
+        throw new Error('Database backup integrity check failed; migration cancelled');
+      }
+    } finally {
+      backup.close();
+    }
+    const file = await open(path, 'r+');
+    try {
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    logger.info(`Database backup created: ${path}`);
   }
 
   /**
@@ -278,7 +359,17 @@ export class DbService {
     const dbVersion = await this.getDbVersion();
     logger.info(`Current version: ${dbVersion}`);
 
-    if (semver.gte(dbVersion, latestVersion)) return;
+    if (semver.gt(dbVersion, latestVersion)) {
+      throw new Error(`Database version ${dbVersion} is newer than supported ${latestVersion}`);
+    }
+    if (dbVersion !== '0.0.0') {
+      if (semver.lt(dbVersion, '3.4.1')) {
+        throw new Error(`Legacy database ${dbVersion} requires conversion before upgrading; data has not been reset`);
+      }
+      await this.validateSchema(this.orm, dbVersion);
+      if (dbVersion === latestVersion) return;
+      await this.backupBeforeMigration(dbVersion);
+    }
 
     const migrationList: IMigrations =
       dbVersion === '0.0.0' ? [initMigrate] : updateMigrate.filter((m) => semver.gt(m.version, dbVersion));
@@ -287,9 +378,11 @@ export class DbService {
       try {
         await this.orm.transaction(async (tx) => {
           await migrate(tx as unknown as IOrm, schemas);
+          const targetVersion = dbVersion === '0.0.0' ? latestVersion : version;
+          await this.validateSchema(tx as unknown as IOrm, targetVersion);
           await tx
             .update(schemas.setting)
-            .set({ value: { data: dbVersion === '0.0.0' ? latestVersion : version } })
+            .set({ value: { data: targetVersion } })
             .where(eq(schemas.setting.key, 'version'));
         });
 

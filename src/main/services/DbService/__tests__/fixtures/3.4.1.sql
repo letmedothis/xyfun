@@ -1,11 +1,7 @@
-import { settingList as tblSetting } from '@shared/config/tblSetting';
-import type { IOrm, ISchemas } from '@shared/types/db';
-import { sql } from 'drizzle-orm';
+-- Frozen SQLite DDL from 3e6a62a3 (3.4.1), DbService/migrations/migrate-3_3_1.ts.
+-- Do not regenerate this fixture from the current initialization migration.
 
-const migrate = async (orm: IOrm, schemas: ISchemas): Promise<void> => {
-  // Create tables if not exists
-  await orm.run(sql`
-    CREATE TABLE IF NOT EXISTS tbl_analyze (
+CREATE TABLE IF NOT EXISTS tbl_analyze (
       id        TEXT PRIMARY KEY,
       key       TEXT NOT NULL UNIQUE,
       name      TEXT NOT NULL,
@@ -18,22 +14,19 @@ const migrate = async (orm: IOrm, schemas: ISchemas): Promise<void> => {
       createdAt INTEGER DEFAULT (strftime('%s', 'now') * 1000),
       updatedAt INTEGER DEFAULT (strftime('%s', 'now') * 1000)
     );
-  `);
-  await orm.run(sql`
-    CREATE TABLE IF NOT EXISTS tbl_channel (
+
+CREATE TABLE IF NOT EXISTS tbl_channel (
       id        TEXT PRIMARY KEY,
       name      TEXT NOT NULL,
       api       TEXT NOT NULL,
       logo      TEXT,
       playback  TEXT,
-      headers   TEXT DEFAULT '{}',           -- JSON
       "group"   TEXT,
       createdAt INTEGER DEFAULT (strftime('%s', 'now') * 1000),
       updatedAt INTEGER DEFAULT (strftime('%s', 'now') * 1000)
     );
-  `);
-  await orm.run(sql`
-    CREATE TABLE IF NOT EXISTS tbl_history (
+
+CREATE TABLE IF NOT EXISTS tbl_history (
       id              TEXT PRIMARY KEY,
       type            INTEGER NOT NULL,      -- 1 = film, 2 = live, 3 = parse, 5 = search, 6 = simple-import, 7 = complete-import
       relateId        TEXT,
@@ -50,9 +43,8 @@ const migrate = async (orm: IOrm, schemas: ISchemas): Promise<void> => {
       createdAt       INTEGER DEFAULT (strftime('%s', 'now') * 1000),
       updatedAt       INTEGER DEFAULT (strftime('%s', 'now') * 1000)
     );
-  `);
-  await orm.run(sql`
-    CREATE TABLE IF NOT EXISTS tbl_iptv (
+
+CREATE TABLE IF NOT EXISTS tbl_iptv (
       id        TEXT PRIMARY KEY,
       key       TEXT NOT NULL UNIQUE,
       name      TEXT NOT NULL,
@@ -65,9 +57,8 @@ const migrate = async (orm: IOrm, schemas: ISchemas): Promise<void> => {
       createdAt INTEGER DEFAULT (strftime('%s', 'now') * 1000),
       updatedAt INTEGER DEFAULT (strftime('%s', 'now') * 1000)
     );
-  `);
-  await orm.run(sql`
-    CREATE TABLE IF NOT EXISTS tbl_plugin (
+
+CREATE TABLE IF NOT EXISTS tbl_plugin (
       id          TEXT PRIMARY KEY,
       type        INTEGER DEFAULT 2,         -- 1 = ui, 2 = system, 3 = mix
       name        TEXT NOT NULL,
@@ -85,18 +76,16 @@ const migrate = async (orm: IOrm, schemas: ISchemas): Promise<void> => {
       createdAt   INTEGER DEFAULT (strftime('%s', 'now') * 1000),
       updatedAt   INTEGER DEFAULT (strftime('%s', 'now') * 1000)
     );
-  `);
-  await orm.run(sql`
-    CREATE TABLE IF NOT EXISTS tbl_setting (
+
+CREATE TABLE IF NOT EXISTS tbl_setting (
       id        TEXT PRIMARY KEY,
       key       TEXT NOT NULL UNIQUE,
       value     TEXT,                        -- JSON
       createdAt INTEGER DEFAULT (strftime('%s', 'now') * 1000),
       updatedAt INTEGER DEFAULT (strftime('%s', 'now') * 1000)
     );
-  `);
-  await orm.run(sql`
-    CREATE TABLE IF NOT EXISTS tbl_site (
+
+CREATE TABLE IF NOT EXISTS tbl_site (
       id         TEXT PRIMARY KEY,
       key        TEXT NOT NULL UNIQUE,
       name       TEXT NOT NULL,
@@ -111,9 +100,8 @@ const migrate = async (orm: IOrm, schemas: ISchemas): Promise<void> => {
       createdAt  INTEGER DEFAULT (strftime('%s', 'now') * 1000),
       updatedAt  INTEGER DEFAULT (strftime('%s', 'now') * 1000)
     );
-  `);
-  await orm.run(sql`
-    CREATE TABLE IF NOT EXISTS tbl_star (
+
+CREATE TABLE IF NOT EXISTS tbl_star (
       id            TEXT PRIMARY KEY,
       type          INTEGER NOT NULL,        -- 1 = film, 2 = live, 3 = parse
       relateId      TEXT,
@@ -125,23 +113,11 @@ const migrate = async (orm: IOrm, schemas: ISchemas): Promise<void> => {
       createdAt     INTEGER DEFAULT (strftime('%s', 'now') * 1000),
       updatedAt     INTEGER DEFAULT (strftime('%s', 'now') * 1000)
     );
-  `);
 
-  // Create indexes for faster queries
-  await orm.run(sql`CREATE INDEX IF NOT EXISTS idx_analyze_key ON tbl_analyze(key);`);
-  await orm.run(
-    sql`CREATE UNIQUE INDEX IF NOT EXISTS uidx_history_identity ON tbl_history(type, relateId, videoId) WHERE type IN (1, 2, 3);`,
-  );
-  await orm.run(sql`CREATE INDEX IF NOT EXISTS idx_iptv_key ON tbl_iptv(key);`);
-  await orm.run(sql`CREATE INDEX IF NOT EXISTS idx_setting_key ON tbl_setting(key);`);
-  await orm.run(sql`CREATE INDEX IF NOT EXISTS idx_site_key ON tbl_site(key);`);
+CREATE INDEX IF NOT EXISTS idx_analyze_key ON tbl_analyze(key);
 
-  // tbl_setting insert default values
-  if ((await orm.$count(schemas.setting)) === 0) {
-    for (const item of tblSetting) {
-      await orm.insert(schemas.setting).values({ key: item.key, value: { data: item.value } });
-    }
-  }
-};
+CREATE INDEX IF NOT EXISTS idx_iptv_key ON tbl_iptv(key);
 
-export default migrate;
+CREATE INDEX IF NOT EXISTS idx_setting_key ON tbl_setting(key);
+
+CREATE INDEX IF NOT EXISTS idx_site_key ON tbl_site(key);

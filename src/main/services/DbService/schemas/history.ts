@@ -30,7 +30,11 @@ export const history = sqliteTable(
       .$onUpdate(() => Date.now())
       .notNull(),
   },
-  (table) => [uniqueIndex('uidx_history_identity').on(table.type, table.relateId, table.videoId)],
+  (table) => [
+    uniqueIndex('uidx_history_identity')
+      .on(table.type, table.relateId, table.videoId)
+      .where(sql`${table.type} IN (1, 2, 3)`),
+  ],
 );
 
 export type HistoryModel = InferSelectModel<typeof history>;

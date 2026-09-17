@@ -56,12 +56,19 @@ export default {
 
   // Adds a new record and returns the inserted row
   async add(orm: IOrm, schemas: ISchemas, doc: IModels['history']) {
+    if (![1, 2, 3].includes(doc.type)) {
+      return await orm.insert(schemas.history).values(doc).returning();
+    }
+
+    // Keep the existing primary key when updating playback progress.
+    const { id: _id, createdAt: _createdAt, ...updates } = doc;
     return await orm
       .insert(schemas.history)
       .values(doc)
       .onConflictDoUpdate({
         target: [schemas.history.type, schemas.history.relateId, schemas.history.videoId],
-        set: { ...doc, updatedAt: Date.now() },
+        targetWhere: sql`${schemas.history.type} IN (1, 2, 3)`,
+        set: { ...updates, updatedAt: Date.now() },
       })
       .returning();
   },

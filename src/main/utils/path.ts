@@ -88,6 +88,7 @@ export const APP_RUNTIME_PATH: string = getSystemPath('runtime');
 export const APP_STORE_PATH: string = getSystemPath('userData');
 
 export const APP_DATABASE_PATH: string = getUserPath('database');
+export const APP_DATABASE_BACKUP_PATH: string = join(APP_DATABASE_PATH, 'backups');
 export const APP_FILE_PATH: string = getUserPath('file');
 export const APP_LOG_PATH: string = getUserPath('log');
 export const APP_PLUGIN_PATH: string = getUserPath('plugin');

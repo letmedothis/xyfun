@@ -13,7 +13,7 @@ const migrate = async (orm: IOrm, _schemas: ISchemas): Promise<void> => {
             ORDER BY updatedAt DESC, createdAt DESC, id DESC
           ) AS rowNumber
         FROM tbl_history
-        WHERE relateId IS NOT NULL AND videoId IS NOT NULL
+        WHERE type IN (1, 2, 3) AND relateId IS NOT NULL AND videoId IS NOT NULL
       )
       WHERE rowNumber > 1
     );
@@ -21,7 +21,7 @@ const migrate = async (orm: IOrm, _schemas: ISchemas): Promise<void> => {
 
   await orm.run(sql`
     CREATE UNIQUE INDEX IF NOT EXISTS uidx_history_identity
-    ON tbl_history(type, relateId, videoId);
+    ON tbl_history(type, relateId, videoId) WHERE type IN (1, 2, 3);
   `);
 };
 
