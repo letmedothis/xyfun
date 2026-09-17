@@ -42,8 +42,13 @@ jobs:
           echo "version=0.0.0-$TIMESTAMP" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
+  upgrade-compatibility:
+    uses: ./.github/workflows/upgrade-compatibility.yml
+
   build:
-    needs: metadata
+    needs:
+      - metadata
+      - upgrade-compatibility
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
