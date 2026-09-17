@@ -22,7 +22,7 @@ overrides:
   vite: npm:rolldown-vite@7.3.0
 
 patchedDependencies:
-  '@libsql/client@0.15.15': 735d1026dd9899a96d0e514ae92133da32447a436ff39216106dde0fec6e1f78
+  '@libsql/client@0.15.15': b4f40852ea1b941327b8c9103a3c43c9de9c593bf16f6e40566068202668ec94
   '@tdesign-vue-next/chat@0.5.2': 4e8d61f183bc4eddd073395f5deaecaf5652dcb25aa07592737d58a4e5c32b08
   artplayer@5.4.0: 5a7c54b7af666229837fbd1cc051fc72656c86c0a0434294fe6d84af4351dd4b
   atomically@1.7.0: 657b68ae90d71dfa6230dbf3431a1c2d952f87572cd8e00e635c4f5739f7b671
@@ -42,7 +42,7 @@ importers:
         version: 6.0.0
       '@libsql/client':
         specifier: ^0.15.15
-        version: 0.15.15(patch_hash=735d1026dd9899a96d0e514ae92133da32447a436ff39216106dde0fec6e1f78)
+        version: 0.15.15(patch_hash=b4f40852ea1b941327b8c9103a3c43c9de9c593bf16f6e40566068202668ec94)
       adm-zip:
         specifier: ^0.5.17
         version: 0.5.17
@@ -289,7 +289,7 @@ importers:
         version: 11.0.0
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@libsql/client@0.15.15(patch_hash=735d1026dd9899a96d0e514ae92133da32447a436ff39216106dde0fec6e1f78))(@opentelemetry/api@1.9.1)
+        version: 0.45.2(@libsql/client@0.15.15(patch_hash=b4f40852ea1b941327b8c9103a3c43c9de9c593bf16f6e40566068202668ec94))(@opentelemetry/api@1.9.1)
       electron:
         specifier: 41.8.0
         version: 41.8.0
@@ -11330,7 +11330,7 @@ snapshots:
       '@lezer/common': 1.5.2
       '@lezer/highlight': 1.2.3
 
-  '@libsql/client@0.15.15(patch_hash=735d1026dd9899a96d0e514ae92133da32447a436ff39216106dde0fec6e1f78)':
+  '@libsql/client@0.15.15(patch_hash=b4f40852ea1b941327b8c9103a3c43c9de9c593bf16f6e40566068202668ec94)':
     dependencies:
       '@libsql/core': 0.15.15
       '@libsql/hrana-client': 0.7.0
@@ -14331,9 +14331,9 @@ snapshots:
 
   dotenv@17.4.2: {}
 
-  drizzle-orm@0.45.2(@libsql/client@0.15.15(patch_hash=735d1026dd9899a96d0e514ae92133da32447a436ff39216106dde0fec6e1f78))(@opentelemetry/api@1.9.1):
+  drizzle-orm@0.45.2(@libsql/client@0.15.15(patch_hash=b4f40852ea1b941327b8c9103a3c43c9de9c593bf16f6e40566068202668ec94))(@opentelemetry/api@1.9.1):
     optionalDependencies:
-      '@libsql/client': 0.15.15(patch_hash=735d1026dd9899a96d0e514ae92133da32447a436ff39216106dde0fec6e1f78)
+      '@libsql/client': 0.15.15(patch_hash=b4f40852ea1b941327b8c9103a3c43c9de9c593bf16f6e40566068202668ec94)
       '@opentelemetry/api': 1.9.1
 
   dts-resolver@2.1.3: {}
